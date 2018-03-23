@@ -1,0 +1,119 @@
+module pgpepe.internal.pool;
+
+import core.time: Duration, minutes;
+import std.algorithm;
+
+import pgpepe.constants;
+import pgpepe.connection;
+
+
+@safe:
+
+
+
+/// Pool of connections to one backend
+package (pgpepe) final class PgConnectionPool
+{
+    private size_t m_fastPoolSize;
+    private size_t m_slowPoolSize;
+    private immutable ConnectionSettings m_settings;
+
+    @property ref immutable(ConnectionSettings) settings() const { return m_settings; }
+
+    this(immutable ConnectionSettings settings, size_t fastPoolSize, size_t slowPoolSize)
+    {
+        m_settings = settings;
+        m_fastPoolSize = fastPoolSize;
+        m_slowPoolSize = slowPoolSize;
+        m_fastCons.reserve(fastPoolSize);
+        m_slowCons.reserve(slowPoolSize);
+    }
+
+    private PgConnection[] m_fastCons;
+    private PgConnection[] m_slowCons;
+
+    /// schedule transaction on one connection
+    PgConnection getConnection(bool fast)
+    {
+        if (fast)
+            return chooseFromArray(m_fastCons, m_fastPoolSize, 6);
+        else
+            return chooseFromArray(m_slowCons, m_slowPoolSize, 1);
+    }
+
+    private PgConnection chooseFromArray(ref PgConnection[] pool,
+        size_t poolSize, size_t freeCriteria)
+    {
+        size_t minQueueIdx = -1;
+        size_t minQueueLength = size_t.max;
+        for (size_t i = 0; i < poolSize; i++)
+        {
+            if (i >= pool.length)
+            {
+                // new connection must be created
+                pool ~= new PgConnection(m_settings);
+                // start connecting
+                pool[i].open();
+                return pool[i];
+            }
+            PgConnection con = pool[i];
+            assert(con.state != ConnectionState.uninitialized);
+            if (con.state == ConnectionState.closed)
+            {
+                // connection must be reopened
+                pool[i] = con = new PgConnection(m_settings);
+                con.open();
+                return con;
+            }
+            if (con.state == ConnectionState.active)
+            {
+                if (con.timeSinceLastRelease > minutes(30))
+                {
+                    // connection is too old, postgres probably has closed it
+                    con.close();
+                    pool[i] = con = new PgConnection(m_settings);
+                    con.open();
+                    return con;
+                }
+                if (con.queueLength < freeCriteria)
+                {
+                    con.markReleaseTime();
+                    return con;
+                }
+                if (minQueueLength > con.queueLength)
+                {
+                    minQueueLength = con.queueLength;
+                    minQueueIdx = i;
+                }
+            }
+        }
+        // at this point we have checked all closed, active and nonexisting
+        // connections slots
+        if (minQueueIdx >= 0)
+        {
+            PgConnection con = pool[minQueueIdx];
+            con.markReleaseTime();
+            return con;
+        }
+        else
+        {
+            // no active connections, we need to choose best non-active one
+            minQueueIdx = -1;
+            minQueueLength = size_t.max;
+            for (size_t i = 0; i < poolSize; i++)
+            {
+                PgConnection con = pool[i];
+                assert(con.state != ConnectionState.active);
+                assert(con.state != ConnectionState.closed);
+                if (minQueueLength > con.queueLength)
+                {
+                    minQueueLength = con.queueLength;
+                    minQueueIdx = i;
+                }
+            }
+            return pool[minQueueIdx];
+        }
+    }
+
+    private static immutable string g_checkQuery = "SELECT version();";
+}
