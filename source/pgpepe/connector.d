@@ -46,10 +46,10 @@ struct ConnectorSettings
     uint queueCapacity = 256;
     /// Maximum number of concurrent transactions in progress.
     uint tsacQueueLimit = 2048;
-    /// If true, arriving transactions on top of tsacQueueLimit will throw
-    /// TransactionLimitReached exception.
+    /// If true (default), arriving transactions on top of tsacQueueLimit will
+    /// bounce with TransactionLimitReached exception thrown.
     bool tsacLimitThrow = true;
-    /// Transaction retry limit for deadlock and serialization error cases.
+    /// Transaction retry limit for deadlock and serialization failure cases.
     int retryLimit = 10;
 }
 
@@ -166,6 +166,7 @@ final class PgConnector
         }
     }
 
+    /// Execute simple textual sql query
     QueryResult execute(string sql, TsacConfig tc = TSAC_FDEFAULT)
     {
         lockTransaction();
