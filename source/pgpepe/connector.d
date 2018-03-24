@@ -1,6 +1,11 @@
 module pgpepe.connector;
 
-import core.time: Duration, seconds;
+import core.time: Duration, seconds, msecs;
+import std.random: uniform;
+
+import vibe.core.log;
+import vibe.core.core: sleep;
+import vibe.core.sync: LocalTaskSemaphore;
 
 public import dpeq.connection: BackendParams;
 public import dpeq.result: QueryResult;
@@ -10,7 +15,6 @@ import pgpepe.connection;
 import pgpepe.exceptions;
 import pgpepe.future;
 import pgpepe.internal.pool;
-import pgpepe.internal.taskqueue;
 
 
 @safe:
@@ -24,18 +28,29 @@ struct ConnectorSettings
     BackendParams[] roBackends;
     /// Each backend will be serviced by this many connections that are only
     /// issuing fast transactions.
-    size_t fastPoolSize = 2;
-    /// Each backend will be serviced by this many connections that are
-    /// issuing transactions in exclusive mode.
-    size_t slowPoolSize = 4;
+    uint fastPoolSize = 4;
+    /// Each backend will be serviced by this many connections that are only
+    /// issuing slow transactions.
+    uint slowPoolSize = 8;
     /// TCP connection timeout.
     Duration connectionTimeout = seconds(10);
-    /// Plain SQL queries wich are ran after each connection starts.
+    /// Plain SQL queries wich are ran right after each connection starts and
+    /// it's default transaction type is set. Use this setting to setup locales
+    /// or any other session-specific stuff.
     string[] conInitQueries;
-    /// This isolation level is set on the connection start using SET TRANSACTION command.
+    /// This isolation level is set on the connection start using
+    /// SET SESSION CHARACTERISTICS AS TRANSACTION ... query.
     IsolationLevel defaultIsolation = READ_COMMITTED;
-    /// Capacity of connection's pipeline queue.
-    size_t queueCapacity = 256;
+    /// Capacity of connection's pipeline queue. Equals to maximum number of queries
+    /// sent but not yet received.
+    uint queueCapacity = 256;
+    /// Maximum number of concurrent transactions in progress.
+    uint tsacQueueLimit = 2048;
+    /// If true, arriving transactions on top of tsacQueueLimit will throw
+    /// TransactionLimitReached exception.
+    bool tsacLimitThrow = true;
+    /// Transaction retry limit for deadlock and serialization error cases.
+    int retryLimit = 10;
 }
 
 
@@ -50,15 +65,42 @@ final class PgConnector
         roPools.length = m_settings.roBackends.length;
         for (int i = 0; i < rwPools.length; i++)
         {
+            logInfo("Creating connection pool for %s read/write backend",
+                m_settings.rwBackends[i].host);
             rwPools[i] = new PgConnectionPool(
-                conSettingsForBackend(m_settings.rwBackends[0], false),
+                conSettingsForBackend(m_settings.rwBackends[i], false),
                 m_settings.fastPoolSize,
                 m_settings.slowPoolSize);
         }
+        m_tsacSemaphore = new LocalTaskSemaphore(m_settings.tsacQueueLimit);
     }
 
     private PgConnectionPool[] rwPools;
     private PgConnectionPool[] roPools;
+
+    private uint m_tsacsRunning = 0;
+    private LocalTaskSemaphore m_tsacSemaphore;
+
+    /// total number of transactions in progress
+    @property uint tsacsRunning() const { return m_tsacsRunning; }
+
+    private void lockTransaction()
+    {
+        if (m_tsacsRunning >= m_settings.tsacQueueLimit && m_settings.tsacLimitThrow)
+        {
+            throw new TransactionLimitReached(
+                "Concurrent transaction count limit reached");
+        }
+        m_tsacSemaphore.lock();
+        m_tsacsRunning++;
+    }
+
+    private void unlockTransaction()
+    {
+        assert(m_tsacsRunning > 0);
+        m_tsacsRunning--;
+        m_tsacSemaphore.unlock();
+    }
 
     private immutable(ConnectionSettings) conSettingsForBackend(
         ref immutable(BackendParams) bp, bool readOnly) const
@@ -79,15 +121,17 @@ final class PgConnector
         return rwPools[0];
     }
 
-    private static void withRetries(scope void delegate() @safe f)
+    private void withRetries(scope void delegate() @safe f)
     {
-        int retryCounter = 0;
+        int retryCounter = m_settings.retryLimit;
+        int socketErrors = 0;
         Exception last;
         while (true)
         {
-            if (retryCounter > 1)
+            if (retryCounter < 0 || socketErrors > 1)
             {
                 assert(last !is null);
+                logDebug("Retry limit reached, throwing %s ", last.classinfo.name);
                 throw last;
             }
             try
@@ -97,15 +141,37 @@ final class PgConnector
             }
             catch (PsqlSocketException ex)
             {
-                retryCounter++;
+                logDiagnostic("Socket error %s in transaction: %s",
+                    ex.classinfo.name, ex.msg);
+                socketErrors++;
                 last = ex;
+            }
+            catch (PsqlErrorResponseException ex)
+            {
+                last = ex;
+                retryCounter--;
+                if (ex.notice.code == "40001")
+                {
+                    logDiagnostic("serialization failure, retrying");
+                    continue;
+                }
+                if (ex.notice.code == "40P01")
+                {
+                    logDiagnostic("deadlock detected, sleeping and retrying");
+                    sleep(msecs(uniform(0, 10)));
+                    continue;
+                }
+                throw ex;
             }
         }
     }
 
-    QueryResult execute(string sql, ref in TsacConfig tc = TSAC_DEFAULT)
+    QueryResult execute(string sql, TsacConfig tc = TSAC_FDEFAULT)
     {
+        lockTransaction();
+        scope(exit) unlockTransaction();
         QueryResult result;
+        logDebug(`execute sql: "%s"`, sql);
         withRetries(() {
             PgConnectionPool cp = choosePool(tc);
             PgConnection c = cp.getConnection(tc.fast);
@@ -114,12 +180,14 @@ final class PgConnector
                 valFuture = pgc.execute(sql);
             });
             tsacFuture.await();
+            valFuture.await();
             if (valFuture.err)
                 throw valFuture.err;
             if (tsacFuture.err)
                 throw tsacFuture.err;
             result = valFuture.result;
         });
+        logDebug(`received %d row block(s)`, result.blocks.length);
         return result;
     }
 }

@@ -1,6 +1,7 @@
 module pgpepe.future;
 
 import dpeq.result;
+import vibe.core.log;
 import vibe.core.sync: LocalManualEvent;
 
 import pgpepe.internal.manualeventpool;
@@ -8,8 +9,8 @@ import pgpepe.internal.manualeventpool;
 
 @safe:
 
-/// Future wich will contain query result or the exception. Can be completed
-/// only once.
+
+/// Future wich will eventually contain query result or the exception.
 final class PgFuture
 {
     private bool m_completed = false;
@@ -19,19 +20,16 @@ final class PgFuture
     private Exception m_err;
     private LocalManualEvent* m_event;
 
+    /// Blocks fiber until completed and returns error exception object or
+    /// null if future succeeded.
     @property Exception err()
     {
         await();
         return m_err;
     }
 
-    @property void err(Exception rhs)
-    {
-        assert(m_err is null);
-        m_err = rhs;
-    }
-
-    /// throws if future resulted in error
+    /// Blocks fiber until completed and returns query result, or throws if
+    /// future was completed with an error.
     @property QueryResult result()
     {
         await();
@@ -40,6 +38,7 @@ final class PgFuture
         return m_result;
     }
 
+    /// Blocks fiber until completed
     void await()
     {
         if (m_completed)
@@ -52,21 +51,25 @@ final class PgFuture
         m_event = null;
     }
 
+    /// Succesfully complete the future, assigning result value and signaling
+    /// the waiter fiber (if present).
     void complete(QueryResult res) nothrow
     {
-        assert(!m_completed);
+        assert(!m_completed, "future already completed");
         m_result = res;
         m_completed = true;
-        if (m_event)
-            m_event.emit();
+        if (m_event !is null)
+            m_event.emitSingle();
     }
 
+    /// Complete the future with exception, signaling
+    /// the waiter fiber (if present).
     void complete(Exception ex) nothrow
     {
-        assert(!m_completed);
+        assert(!m_completed, "future already completed");
         m_err = ex;
         m_completed = true;
-        if (m_event)
-            m_event.emit();
+        if (m_event !is null)
+            m_event.emitSingle();
     }
 }

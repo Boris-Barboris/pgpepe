@@ -10,5 +10,6 @@
     "painlesstraits": "~>0.3",
     "vibe-core": "~>1.4",
     "dpeq": { "path": "../dpeq" }
-  }
+  },
+  "lflags": ["--export-dynamic"]
 }

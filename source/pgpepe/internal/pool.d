@@ -12,15 +12,15 @@ import pgpepe.connection;
 
 
 /// Pool of connections to one backend
-package (pgpepe) final class PgConnectionPool
+final class PgConnectionPool
 {
-    private size_t m_fastPoolSize;
-    private size_t m_slowPoolSize;
+    private uint m_fastPoolSize;
+    private uint m_slowPoolSize;
     private immutable ConnectionSettings m_settings;
 
     @property ref immutable(ConnectionSettings) settings() const { return m_settings; }
 
-    this(immutable ConnectionSettings settings, size_t fastPoolSize, size_t slowPoolSize)
+    this(immutable ConnectionSettings settings, uint fastPoolSize, uint slowPoolSize)
     {
         m_settings = settings;
         m_fastPoolSize = fastPoolSize;
@@ -36,7 +36,7 @@ package (pgpepe) final class PgConnectionPool
     PgConnection getConnection(bool fast)
     {
         if (fast)
-            return chooseFromArray(m_fastCons, m_fastPoolSize, 6);
+            return chooseFromArray(m_fastCons, m_fastPoolSize, 9);
         else
             return chooseFromArray(m_slowCons, m_slowPoolSize, 1);
     }
@@ -44,9 +44,9 @@ package (pgpepe) final class PgConnectionPool
     private PgConnection chooseFromArray(ref PgConnection[] pool,
         size_t poolSize, size_t freeCriteria)
     {
-        size_t minQueueIdx = -1;
-        size_t minQueueLength = size_t.max;
-        for (size_t i = 0; i < poolSize; i++)
+        int minLoadIdx = -1;
+        ulong minConLoad = ulong.max;
+        for (int i = 0; i < poolSize; i++)
         {
             if (i >= pool.length)
             {
@@ -57,7 +57,10 @@ package (pgpepe) final class PgConnectionPool
                 return pool[i];
             }
             PgConnection con = pool[i];
+            ulong conLoad = con.queueLength + con.tsacsBlocked;
             assert(con.state != ConnectionState.uninitialized);
+            if (con.state == ConnectionState.connecting && conLoad < freeCriteria)
+                return con;
             if (con.state == ConnectionState.closed)
             {
                 // connection must be reopened
@@ -75,45 +78,44 @@ package (pgpepe) final class PgConnectionPool
                     con.open();
                     return con;
                 }
-                if (con.queueLength < freeCriteria)
+                if (conLoad < freeCriteria)
                 {
                     con.markReleaseTime();
                     return con;
                 }
-                if (minQueueLength > con.queueLength)
+                if (conLoad < minConLoad)
                 {
-                    minQueueLength = con.queueLength;
-                    minQueueIdx = i;
+                    minConLoad = conLoad;
+                    minLoadIdx = i;
                 }
             }
         }
         // at this point we have checked all closed, active and nonexisting
         // connections slots
-        if (minQueueIdx >= 0)
+        if (minLoadIdx >= 0)
         {
-            PgConnection con = pool[minQueueIdx];
+            PgConnection con = pool[minLoadIdx];
             con.markReleaseTime();
             return con;
         }
         else
         {
             // no active connections, we need to choose best non-active one
-            minQueueIdx = -1;
-            minQueueLength = size_t.max;
-            for (size_t i = 0; i < poolSize; i++)
+            minLoadIdx = -1;
+            minConLoad = ulong.max;
+            for (int i = 0; i < poolSize; i++)
             {
                 PgConnection con = pool[i];
                 assert(con.state != ConnectionState.active);
                 assert(con.state != ConnectionState.closed);
-                if (minQueueLength > con.queueLength)
+                ulong conLoad = con.queueLength + con.tsacsBlocked;
+                if (conLoad < minConLoad)
                 {
-                    minQueueLength = con.queueLength;
-                    minQueueIdx = i;
+                    minConLoad = conLoad;
+                    minLoadIdx = i;
                 }
             }
-            return pool[minQueueIdx];
+            return pool[minLoadIdx];
         }
     }
-
-    private static immutable string g_checkQuery = "SELECT version();";
 }

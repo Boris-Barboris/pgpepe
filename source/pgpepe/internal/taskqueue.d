@@ -26,7 +26,7 @@ struct TaskQueue(T)
 
     this(size_t capacity)
     {
-        enforce(capacity != 0, "invalid (zero) capacity");
+        enforce(capacity != 0, "invalid (zero) TaskQueue capacity");
         arr.length = capacity;
         pushEvt = createManualEvent();
         popEvt = createManualEvent();
