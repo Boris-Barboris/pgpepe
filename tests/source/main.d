@@ -137,7 +137,8 @@ void testTsac1()
         // another transaction with the same lock
         try
         {
-            c.transaction((scope sc) {
+            PgConnector c2 = new PgConnector(conSets);
+            c2.transaction((scope sc) {
                 auto lockF2 = sc.execute("lock table testt1 in ACCESS EXCLUSIVE MODE NOWAIT;");
                 assert(lockF2.err !is null);
                 throw lockF2.err;

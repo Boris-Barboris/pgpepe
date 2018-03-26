@@ -170,8 +170,8 @@ final class Prepared(ParamTypes...): AbstractPrepared
 
         auto savepoint = con.saveBuffer();
         scope (failure) savepoint.restore();
-
-        con.putBindMessage(portal, ps, g_formatCodes[], MarshRange(), [FormatCode.Binary]);
+        // dpeq has shit type support, so we better stay at text format
+        con.putBindMessage(portal, ps, g_formatCodes[], MarshRange(), [FormatCode.Text]);
     }
 }
 

@@ -40,7 +40,7 @@ final class PgConnectionPool
         if (fast)
             return chooseFromArray(m_fastCons, m_fastPoolSize, 9);
         else
-            return chooseFromArray(m_slowCons, m_slowPoolSize, 1);
+            return chooseFromArray(m_slowCons, m_slowPoolSize, 2);
     }
 
     private PgConnection chooseFromArray(ref PgConnection[] pool,
