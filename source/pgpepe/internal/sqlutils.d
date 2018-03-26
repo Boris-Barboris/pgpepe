@@ -7,7 +7,7 @@ import std.uni: asUpperCase;
 @safe:
 
 /// asserts if sql contains explicit transaction management commands
-void lookForTsacs(in string sql) pure // @nogc
+void lookForTsacs(scope const string sql) pure // @nogc
 {
     if (sql.length < 5)
         return;
@@ -25,7 +25,7 @@ void lookForTsacs(in string sql) pure // @nogc
 }
 
 /// http://www.cse.yorku.ca/~oz/hash.html
-ulong djb2(in string str) pure
+ulong djb2(scope const string str) pure
 {
 	ulong hash = 5381;
 	foreach (char c; str)

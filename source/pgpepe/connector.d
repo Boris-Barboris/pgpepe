@@ -14,6 +14,7 @@ import pgpepe.constants;
 import pgpepe.connection;
 import pgpepe.exceptions;
 import pgpepe.future;
+import pgpepe.prepared;
 import pgpepe.internal.pool;
 
 
@@ -50,7 +51,9 @@ struct ConnectorSettings
     /// bounce with TransactionLimitReached exception thrown.
     bool tsacLimitThrow = true;
     /// Transaction retry limit for deadlock and serialization failure cases.
-    int retryLimit = 10;
+    int safeRetryLimit = 10;
+    /// Transaction retry limit for connectivity failure cases.
+    int sockRetryLimit = 1;
 }
 
 
@@ -123,12 +126,12 @@ final class PgConnector
 
     private void withRetries(scope void delegate() @safe f)
     {
-        int retryCounter = m_settings.retryLimit;
-        int socketErrors = 0;
+        int safeRetries = m_settings.safeRetryLimit;
+        int sockRetries = m_settings.sockRetryLimit;
         Exception last;
         while (true)
         {
-            if (retryCounter < 0 || socketErrors > 1)
+            if (safeRetries < 0 || sockRetries < 0)
             {
                 assert(last !is null);
                 logDebug("Retry limit reached, throwing %s ", last.classinfo.name);
@@ -143,13 +146,13 @@ final class PgConnector
             {
                 logDiagnostic("Socket error %s in transaction: %s",
                     ex.classinfo.name, ex.msg);
-                socketErrors++;
+                sockRetries--;
                 last = ex;
             }
             catch (PsqlErrorResponseException ex)
             {
+                safeRetries--;
                 last = ex;
-                retryCounter--;
                 if (ex.notice.code == "40001")
                 {
                     logDiagnostic("serialization failure, retrying");
@@ -180,8 +183,6 @@ final class PgConnector
             PgFuture tsacFuture = c.runInTsac(tc, (scope PgConnection pgc) {
                 valFuture = pgc.execute(sql);
             });
-            tsacFuture.await();
-            valFuture.await();
             if (valFuture.err)
                 throw valFuture.err;
             if (tsacFuture.err)
@@ -190,5 +191,43 @@ final class PgConnector
         });
         logDebug(`received %d row block(s)`, result.blocks.length);
         return result;
+    }
+
+    /// Execute prepared statement
+    QueryResult execute(scope AbstractPrepared p, bool describe = true, TsacConfig tc = TSAC_FDEFAULT)
+    {
+        lockTransaction();
+        scope(exit) unlockTransaction();
+        QueryResult result;
+        logDebug(`execute prepared`);
+        withRetries(() {
+            PgConnectionPool cp = choosePool(tc);
+            PgConnection c = cp.getConnection(tc.fast);
+            PgFuture valFuture;
+            PgFuture tsacFuture = c.runInTsac(tc, (scope PgConnection pgc) {
+                valFuture = pgc.execute(p, describe);
+            }, true);   // implicit transaction scope is ok here
+            if (valFuture.err)
+                throw valFuture.err;
+            if (tsacFuture.err)
+                throw tsacFuture.err;
+            result = valFuture.result;
+        });
+        logDebug(`received %d row block(s)`, result.blocks.length);
+        return result;
+    }
+
+    /// Run delegate in transaction
+    void transaction(scope TsacDlg tsacBody, TsacConfig tc = TSAC_DEFAULT)
+    {
+        lockTransaction();
+        scope(exit) unlockTransaction();
+        withRetries(() {
+            PgConnectionPool cp = choosePool(tc);
+            PgConnection c = cp.getConnection(tc.fast);
+            PgFuture tsacFuture = c.runInTsac(tc, tsacBody);
+            if (tsacFuture.err)
+                throw tsacFuture.err;
+        });
     }
 }

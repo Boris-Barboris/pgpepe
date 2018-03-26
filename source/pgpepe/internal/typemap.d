@@ -7,6 +7,19 @@ import std.uuid: UUID;
 import dpeq;
 
 
+FieldSpec specForType(NullableT)()
+    if (isInstanceOf!(Nullable, NullableT))
+{
+    alias T = TemplateArgsOf!NullableT;
+    return FieldSpec(oidForType!T(), true);
+}
+
+FieldSpec specForType(T)()
+    if (!isInstanceOf!(Nullable, T))
+{
+    return FieldSpec(oidForType!T(), false);
+}
+
 OID oidForType(NullableT)()
     if (isInstanceOf!(Nullable, NullableT))
 {

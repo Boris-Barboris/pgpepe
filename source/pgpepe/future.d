@@ -1,6 +1,6 @@
 module pgpepe.future;
 
-import dpeq.result;
+public import dpeq.result: QueryResult;
 import vibe.core.log;
 import vibe.core.sync: LocalManualEvent;
 

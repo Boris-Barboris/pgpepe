@@ -3,6 +3,8 @@ module pgpepe.internal.pool;
 import core.time: Duration, minutes;
 import std.algorithm;
 
+import vibe.core.log;
+
 import pgpepe.constants;
 import pgpepe.connection;
 
@@ -58,6 +60,8 @@ final class PgConnectionPool
             }
             PgConnection con = pool[i];
             ulong conLoad = con.queueLength + con.tsacsBlocked;
+            logTrace("connection #%d load: resultQueue %d + tsacQueue %d",
+                i, con.queueLength, con.tsacsBlocked);
             assert(con.state != ConnectionState.uninitialized);
             if (con.state == ConnectionState.connecting && conLoad < freeCriteria)
                 return con;

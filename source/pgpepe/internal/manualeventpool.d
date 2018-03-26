@@ -25,7 +25,7 @@ LocalManualEvent* getManualEvent()
     if (eventPool[poolHead] is null)
     {
         eventPool[poolHead] = new LocalManualEvent();
-        *eventPool[poolHead] = createManualEvent();
+        *(eventPool[poolHead]) = createManualEvent();
     }
     return eventPool[poolHead++];
 }
@@ -34,5 +34,5 @@ void releaseManualEvent(LocalManualEvent* evt) nothrow
 {
     assert(evt !is null);
     assert(poolHead > 0, "pool is already full");
-    eventPool[poolHead--] = evt;
+    eventPool[--poolHead] = evt;
 }

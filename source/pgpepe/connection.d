@@ -12,6 +12,7 @@ import vibe.core.sync: TaskMutex;
 import dpeq;
 
 import pgpepe.constants;
+import pgpepe.prepared;
 import pgpepe.future;
 import pgpepe.internal.taskqueue;
 
@@ -42,7 +43,7 @@ enum ConnectionState: byte
 /** Transaction body delegate signature. Run queries while exclusively owning
 connection object and return (commit is issued by pgpepe on return, or
 rollback if something was thrown). */
-package alias TsacDlg = void delegate(scope PgConnection) @safe;
+alias TsacDlg = void delegate(scope PgConnection) @safe;
 
 
 final class PgConnection
@@ -101,7 +102,7 @@ final class PgConnection
         }
     }
 
-    private alias DpeqConT = PSQLConnection!(VibeCoreSocket, nop_logger, logError);
+    package alias DpeqConT = PSQLConnection!(VibeCoreSocket, nop_logger, logError);
 
     private DpeqConT m_con;
     private MonoTime m_lastRelease;
@@ -137,6 +138,7 @@ final class PgConnection
 
     package void close() nothrow
     {
+        logInfo("Closing connection to %s", m_settings.backendParam.host);
         if (m_state != ConnectionState.closed)
         {
             // notify reader task that it's time to die
@@ -245,9 +247,11 @@ final class PgConnection
             }
             catch (Exception ex)
             {
-                logDebug("%s caught from pollMessages: %s", ex.classinfo.name, ex.msg);
+                logDebugV("%s caught in readerTask: %s", ex.classinfo.name, ex.msg);
                 if (future !is null)
                     future.complete(ex);
+                else
+                    logWarn("ignoring exception, no accepting future");
             }
         }
     }
@@ -320,7 +324,7 @@ final class PgConnection
         {
             if (!explicitTsac)
             {
-                logDiagnostic("%s rethrown in implicit rollback: %s",
+                logDiagnostic("%s rethrown from implicit rollback: %s",
                     e.classinfo.name, e.msg);
                 throw e;
             }
@@ -341,6 +345,51 @@ final class PgConnection
         m_con.flush();
         if (f is null)
             f = new PgFuture();
+        m_resultQueue.pushBack(f);
+        return f;
+    }
+
+    private string[ulong] m_psCache;
+
+    /// Execute prepared statement
+    PgFuture execute(scope AbstractPrepared p, bool describe = true, PgFuture f = null)
+    {
+        if (f is null)
+            f = new PgFuture();
+        if (p.named)
+        {
+            string* psName = p.hash in m_psCache;
+            if (psName is null)
+            {
+                logDebugV("Prepared statement cache miss");
+                string newName = m_con.getNewPreparedName();
+                p.parse(m_con, newName);
+                // we need to wait for parse, because it may fail
+                m_con.sync();
+                m_con.flush();
+                auto parseFuture = new PgFuture();
+                m_resultQueue.pushBack(parseFuture);
+                if (parseFuture.err)
+                    throw parseFuture.err;
+                m_psCache[p.hash] = newName;
+                p.bind(m_con, newName, "");
+            }
+            else
+            {
+                logDebugV("Prepared statement cache hit");
+                p.bind(m_con, *psName, "");
+            }
+        }
+        else
+        {
+            p.parse(m_con, "");
+            p.bind(m_con, "", "");
+        }
+        if (describe)
+            m_con.putDescribeMessage(StmtOrPortal.portal, "");
+        m_con.putExecuteMessage("");
+        m_con.sync();
+        m_con.flush();
         m_resultQueue.pushBack(f);
         return f;
     }

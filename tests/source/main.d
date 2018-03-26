@@ -22,7 +22,7 @@ shared static this()
 
 void main()
 {
-    setLogLevel(LogLevel.debug_);
+    setLogLevel(LogLevel.debugV);
     setLogFormat(FileLogger.Format.threadTime, FileLogger.Format.threadTime);
     Task t = runTask(&runTestList);
     runEventLoop();
@@ -35,10 +35,14 @@ void runTestList()
     c = new PgConnector(conSets);
     testSimpleQuery1();
     testExceptionSimple();
+    testPreparedStatement1();
+    testPreparedStatement2();
+    testTsac1();
 }
 
 void testSimpleQuery1()
 {
+    writeln(__FUNCTION__);
     QueryResult r = c.execute("SELECT version();");
     assert(r.blocks.length == 1);
     auto variants = blockToVariants(r.blocks[0]);
@@ -66,4 +70,70 @@ void assertVersion(PgConnector c, string expected)
 void testExceptionSimple()
 {
     assertThrown!PsqlErrorResponseException(c.execute("SELECT bullshit();"));
+}
+
+void testPreparedStatement1()
+{
+    writeln(__FUNCTION__);
+    auto ps = prepared("SELECT $1 + $2", 12, 3);
+    QueryResult r = c.execute(ps);
+    auto variants = blockToVariants(r.blocks[0]);
+    assert(variants.length == 1);
+    int result = variants[0].front.get!int;
+    writeln(`result: `, result);
+    assert(result == 15);
+}
+
+void testPreparedStatement2()
+{
+    writeln(__FUNCTION__);
+    static HashedSql hsql = HashedSql("SELECT $1::int - $2");
+    auto ps = prepared(hsql, "13", 3);
+    QueryResult r = c.execute(ps);
+    auto variants = blockToVariants(r.blocks[0]);
+    assert(variants.length == 1);
+    int result = variants[0].front.get!int;
+    writeln(`result: `, result);
+    assert(result == 10);
+    // how cached prepared statement should come into game
+    r = c.execute(ps);
+    variants = blockToVariants(r.blocks[0]);
+    result = variants[0].front.get!int;
+    assert(result == 10);
+}
+
+void testTsac1()
+{
+    writeln(__FUNCTION__);
+    try
+    {
+        // should throw
+        c.transaction((scope c) {
+                auto createF = c.execute("create table haskdhja adk;");
+                createF.result();
+            });
+    }
+    catch (PsqlErrorResponseException pex)
+    {
+        writeln("caught as expected: ", pex.msg);
+    }
+    c.execute("create table testt1 (somerow boolean);");
+    c.transaction((scope sc) {
+        auto lockF = sc.execute("lock table testt1 in ACCESS EXCLUSIVE MODE;");
+        lockF.result();
+        // another transaction with the same lock
+        try
+        {
+            c.transaction((scope sc) {
+                auto lockF2 = sc.execute("lock table testt1 in ACCESS EXCLUSIVE MODE NOWAIT;");
+                assert(lockF2.err !is null);
+                throw lockF2.err;
+            });
+            assert(0, "should have thrown");
+        }
+        catch (PsqlErrorResponseException pex)
+        {
+            writeln("caught as expected: ", pex.msg, ", sqlcode ", pex.notice.code);
+        }
+    });
 }
