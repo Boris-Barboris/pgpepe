@@ -73,7 +73,6 @@ class AbstractPrepared
 
 /// Prepared statement with variadic parameter syntax
 final class Prepared(ParamTypes...): AbstractPrepared
-    if (ParamTypes.length > 0)
 {
     /// Construct unnamed (non-cached) prepared statement
     this(string sql, ParamTypes params)
@@ -89,10 +88,13 @@ final class Prepared(ParamTypes...): AbstractPrepared
         m_params = params;
     }
 
-    /// Construct named (cached) prepared statement
-    this(const HashedSql hsql)
+    static if (ParamTypes.length > 0)
     {
-        super(hsql);
+        /// Construct named (cached) prepared statement
+        this(const HashedSql hsql)
+        {
+            super(hsql);
+        }
     }
 
     /// override params

@@ -37,6 +37,7 @@ void runTestList()
     testExceptionSimple();
     testPreparedStatement1();
     testPreparedStatement2();
+    testPreparedStatement3();
     testTsac1();
 }
 
@@ -95,11 +96,23 @@ void testPreparedStatement2()
     int result = variants[0].front.get!int;
     writeln(`result: `, result);
     assert(result == 10);
-    // how cached prepared statement should come into game
+    // cached prepared statement should be used here
     r = c.execute(ps);
     variants = blockToVariants(r.blocks[0]);
     result = variants[0].front.get!int;
     assert(result == 10);
+}
+
+void testPreparedStatement3()
+{
+    writeln(__FUNCTION__);
+    auto ps = prepared("SELECT '123'");
+    QueryResult r = c.execute(ps);
+    auto variants = blockToVariants(r.blocks[0]);
+    assert(variants.length == 1);
+    string result = variants[0].front.get!string;
+    writeln(`result: `, result);
+    assert(result == "123");
 }
 
 void testTsac1()
