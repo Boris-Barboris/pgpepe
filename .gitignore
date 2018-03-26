@@ -1,5 +1,6 @@
 *.a
 dub.selections.json
 .dub/
-pgpepe_tests*
+pgpepe_test*
+pgpepe-test*
 *.lib

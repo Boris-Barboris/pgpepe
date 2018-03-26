@@ -1,10 +1,13 @@
 module pgpepe.prepared;
 
 import std.container.array;
+import std.range: iota;
+public import std.typecons: Nullable;
 
 import dpeq;
 
 import pgpepe.internal.sqlutils;
+import pgpepe.internal.typemap;
 
 
 @safe:
@@ -26,8 +29,8 @@ struct HashedSql
 }
 
 /// Prepared statement with variadic parameter syntax
-struct Prepared(T...)
-    if (T.length > 0)
+struct Prepared(ParamTypes...)
+    if (ParamTypes.length > 0)
 {
     package string m_sql;
     @property string sql() const { return m_sql; }
@@ -35,7 +38,8 @@ struct Prepared(T...)
     package bool named = false;
 
     /// Construct unnamed (non-cached) prepared statement
-    this(string sql, T params)
+    this(ConsTypes...)(string sql, ConsTypes params)
+        if (ConsTypes.length == ParamTypes.length)
     {
         debug lookForTsacs(sql);
         assert(sql.length > 0, "empty sql string");
@@ -44,7 +48,8 @@ struct Prepared(T...)
     }
 
     /// Construct named (cached) prepared statement
-    this(const HashedSql hsql, T params)
+    this(ConsTypes...)(const HashedSql hsql, ConsTypes params)
+        if (ConsTypes.length == ParamTypes.length)
     {
         assert(hsql.sql.length > 0, "empty sql string");
         m_sql = hsql.sql;
@@ -55,6 +60,29 @@ struct Prepared(T...)
 
     private
     {
-        T m_params;
+        ParamTypes m_params;
+
+        // static type-specific data
+        static immutable(OID)[] g_paramTypes;
+        static immutable(FormatCode)[] g_paramFcodes;
     }
+
+    static this()
+    {
+        static foreach (i; iota(0, ParamTypes.length))
+        {{
+            enum OID oid = oidForType!(ParamTypes[i]);
+            g_paramTypes ~= oid;
+            g_paramFcodes ~= StaticFieldSerializer!(FieldSpec(oid, true)).formatCode;
+        }}
+    }
+}
+
+unittest
+{
+    auto p = Prepared!(double, Nullable!string)("asd", 13.0, "32232");
+    assert(p.m_params[0] == 13.0);
+    assert(p.m_params[1].get == "32232");
+    p = typeof(p)("asd2", 12.0, Nullable!string());
+    assert(p.m_params[1].isNull);
 }

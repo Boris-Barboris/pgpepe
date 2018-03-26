@@ -9,5 +9,6 @@
   "dependencies":
   {
     "pgpepe": { "path": "../" }
-  }
+  },
+  "lflags": ["--export-dynamic"]
 }
