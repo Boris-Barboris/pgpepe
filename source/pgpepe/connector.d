@@ -48,7 +48,7 @@ struct ConnectorSettings
     /// Maximum number of concurrent transactions in progress.
     uint tsacQueueLimit = 2048;
     /// If true (default), arriving transactions on top of tsacQueueLimit will
-    /// bounce with TransactionLimitReached exception thrown.
+    /// bounce with TransactionLimitException exception thrown.
     bool tsacLimitThrow = true;
     /// Transaction retry limit for deadlock and serialization failure cases.
     int safeRetryLimit = 10;
@@ -91,7 +91,7 @@ final class PgConnector
     {
         if (m_tsacsRunning >= m_settings.tsacQueueLimit && m_settings.tsacLimitThrow)
         {
-            throw new TransactionLimitReached(
+            throw new TransactionLimitException(
                 "Concurrent transaction count limit reached");
         }
         m_tsacSemaphore.lock();
@@ -161,7 +161,9 @@ final class PgConnector
                 if (ex.notice.code == "40P01")
                 {
                     logDiagnostic("deadlock detected, sleeping and retrying");
-                    sleep(msecs(uniform(0, 10)));
+                    int toSleep = uniform(0, 10);
+                    if (toSleep > 0)
+                        sleep(msecs(toSleep));
                     continue;
                 }
                 throw ex;
@@ -194,7 +196,7 @@ final class PgConnector
     }
 
     /// Execute prepared statement
-    QueryResult execute(scope AbstractPrepared p, bool describe = true, TsacConfig tc = TSAC_FDEFAULT)
+    QueryResult execute(scope BasePrepared p, bool describe = true, TsacConfig tc = TSAC_FDEFAULT)
     {
         lockTransaction();
         scope(exit) unlockTransaction();

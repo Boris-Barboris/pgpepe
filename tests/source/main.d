@@ -39,6 +39,7 @@ void runTestList()
     testPreparedStatement2();
     testPreparedStatement3();
     testTsac1();
+    testConversion1();
 }
 
 void testSimpleQuery1()
@@ -150,4 +151,40 @@ void testTsac1()
             writeln("caught as expected: ", pex.msg, ", sqlcode ", pex.notice.code);
         }
     });
+}
+
+void testConversion1()
+{
+    writeln(__FUNCTION__);
+    c.execute("create table testt2 (
+        row1 boolean,
+        row2 int,
+        row3 bigint,
+        row4 double precision,
+        row5 money,
+        row6 timestamp,
+        row7 text);");
+    c.execute(`insert into testt2 values ('t', 4, 42, 46.0, '12.23', null, 'sometext');`);
+    auto r = c.execute(`select * from testt2`);
+    assert(r.asTag == 1);
+
+    static struct ResS
+    {
+        bool row1;
+        int row2;
+        long row3;
+        double row4;
+        string row5;
+        Nullable!string row6;
+        string row7;
+    }
+
+    ResS res = r.asStruct!ResS;
+    assert(res.row1 == true);
+    assert(res.row2 == 4);
+    assert(res.row3 == 42);
+    assert(res.row4 == 46.0);
+    assert(res.row5 == "$12.23");
+    assert(res.row6.isNull);
+    assert(res.row7 == "sometext");
 }

@@ -352,7 +352,7 @@ final class PgConnection
     private string[ulong] m_psCache;
 
     /// Execute prepared statement
-    PgFuture execute(scope AbstractPrepared p, bool describe = true, PgFuture f = null)
+    PgFuture execute(scope BasePrepared p, bool describe = true, PgFuture f = null)
     {
         if (f is null)
             f = new PgFuture();

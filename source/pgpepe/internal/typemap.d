@@ -7,21 +7,26 @@ import std.uuid: UUID;
 import dpeq;
 
 
+template isNullable(T)
+{
+    enum isNullable = isInstanceOf!(Nullable, T);
+}
+
 FieldSpec specForType(NullableT)()
-    if (isInstanceOf!(Nullable, NullableT))
+    if (isNullable!NullableT)
 {
     alias T = TemplateArgsOf!NullableT;
     return FieldSpec(oidForType!T(), true);
 }
 
 FieldSpec specForType(T)()
-    if (!isInstanceOf!(Nullable, T))
+    if (!isNullable!T)
 {
     return FieldSpec(oidForType!T(), false);
 }
 
 OID oidForType(NullableT)()
-    if (isInstanceOf!(Nullable, NullableT))
+    if (isNullable!NullableT)
 {
     alias T = TemplateArgsOf!NullableT;
     static assert (!isInstanceOf!(Nullable, T), "nested nullable");
@@ -29,7 +34,7 @@ OID oidForType(NullableT)()
 }
 
 OID oidForType(T)()
-    if (!isInstanceOf!(Nullable, T))
+    if (!isNullable!T)
 {
     static if (is(T == bool))
         return PgType.BOOLEAN;

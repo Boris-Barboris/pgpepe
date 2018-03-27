@@ -33,7 +33,7 @@ struct HashedSql
 }
 
 
-class AbstractPrepared
+class BasePrepared
 {
     private string m_sql;
     final @property string sql() pure const { return m_sql; }
@@ -61,8 +61,6 @@ class AbstractPrepared
 
     void parse(PgConnection.DpeqConT con, string psname = "") const
     {
-        auto savepoint = con.saveBuffer();
-        scope (failure) savepoint.restore();
         logDebug("Parsing prepared statement %s", m_sql);
         con.putParseMessage(psname, m_sql, OID[].init);
     }
@@ -72,7 +70,7 @@ class AbstractPrepared
 
 
 /// Prepared statement with variadic parameter syntax
-final class Prepared(ParamTypes...): AbstractPrepared
+final class Prepared(ParamTypes...): BasePrepared
 {
     /// Construct unnamed (non-cached) prepared statement
     this(string sql, ParamTypes params)
@@ -132,8 +130,6 @@ final class Prepared(ParamTypes...): AbstractPrepared
 
     override void parse(PgConnection.DpeqConT con, string psname = "") const
     {
-        auto savepoint = con.saveBuffer();
-        scope (failure) savepoint.restore();
         logDebug("Parsing prepared statement %s", m_sql);
         con.putParseMessage(psname, m_sql, g_paramOids[]);
     }
@@ -168,8 +164,6 @@ final class Prepared(ParamTypes...): AbstractPrepared
             }
         }
 
-        auto savepoint = con.saveBuffer();
-        scope (failure) savepoint.restore();
         // dpeq has shit type support, so we better stay at text format
         con.putBindMessage(portal, ps, g_formatCodes[], MarshRange(), [FormatCode.Text]);
     }
