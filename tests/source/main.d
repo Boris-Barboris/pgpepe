@@ -123,7 +123,7 @@ void testPreparedStatement4()
     auto pb = new PreparedBuilder();
     pb.append("SELECT $1::varchar");
     int param1 = 42;
-    pb.add(&param1);
+    pb.put(&param1);
     pb.build();
     QueryResult r = c.execute(pb);
     auto variants = blockToVariants(r.blocks[0]);

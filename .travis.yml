@@ -1,0 +1,16 @@
+language: d
+addons:
+  postgresql: "9.5"
+git:
+  depth: 3
+before_script:
+  - psql -c 'create database pgpepetestdb;' -U postgres
+d:
+  - dmd
+  - ldc
+script:
+  - dub test
+  - cd tests && dub -b debug
+  - psql -c 'drop database pgpepetestdb;' -U postgres
+  - psql -c 'create database pgpepetestdb;' -U postgres
+  - cd tests && dub -b release

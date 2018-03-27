@@ -237,7 +237,7 @@ final class PreparedBuilder: BasePrepared
         sqlAppender.put(sqlPart);
     }
 
-    void add(T)(const(T)* param)
+    void put(T)(const(T)* param)
     {
         assert(!built, "prepared statement already built");
         enum FieldSpec fs = specForType!T;
@@ -303,8 +303,8 @@ final class PreparedBuilder: BasePrepared
     p.append("$1 +");
     p.append("$2;");
     int a = 3;
-    p.add(&a);
+    p.put(&a);
     int b = 4;
-    p.add(&b);
+    p.put(&b);
     p.build();
 }
