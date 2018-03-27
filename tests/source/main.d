@@ -47,11 +47,8 @@ void testSimpleQuery1()
 {
     writeln(__FUNCTION__);
     QueryResult r = c.execute("SELECT version();");
-    assert(r.blocks.length == 1);
-    auto variants = blockToVariants(r.blocks[0]);
-    assert(variants.length == 1);
-    writeln(`"SELECT version();" returned: `, variants[0].front);
-    string expectedVersion = variants[0].front.get!string;
+    string expectedVersion = r.asType!string;
+    writeln(`"SELECT version();" returned: `, expectedVersion);
     Task[] tasks;
     immutable size_t tcount = 8;
     tasks.reserve(tcount);
@@ -65,9 +62,7 @@ void assertVersion(PgConnector c, string expected)
 {
     QueryResult r = c.execute("SELECT version();");
     assert(r.blocks.length == 1);
-    auto variants = blockToVariants(r.blocks[0]);
-    assert(variants.length == 1);
-    assert(variants[0].front.get!string == expected);
+    assert(r.asType!string == expected);
 }
 
 void testExceptionSimple()
@@ -80,9 +75,7 @@ void testPreparedStatement1()
     writeln(__FUNCTION__);
     auto ps = prepared("SELECT $1 + $2", 12, 3);
     QueryResult r = c.execute(ps);
-    auto variants = blockToVariants(r.blocks[0]);
-    assert(variants.length == 1);
-    int result = variants[0].front.get!int;
+    int result = r.asType!int;
     writeln(`result: `, result);
     assert(result == 15);
 }
@@ -93,15 +86,12 @@ void testPreparedStatement2()
     static HashedSql hsql = HashedSql("SELECT $1::int - $2");
     auto ps = prepared(hsql, "13", 3);
     QueryResult r = c.execute(ps);
-    auto variants = blockToVariants(r.blocks[0]);
-    assert(variants.length == 1);
-    int result = variants[0].front.get!int;
+    int result = r.asType!int;
     writeln(`result: `, result);
     assert(result == 10);
     // cached prepared statement should be used here
     r = c.execute(ps);
-    variants = blockToVariants(r.blocks[0]);
-    result = variants[0].front.get!int;
+    result = r.asType!int;
     assert(result == 10);
 }
 
@@ -110,9 +100,7 @@ void testPreparedStatement3()
     writeln(__FUNCTION__);
     auto ps = prepared("SELECT '123'");
     QueryResult r = c.execute(ps);
-    auto variants = blockToVariants(r.blocks[0]);
-    assert(variants.length == 1);
-    string result = variants[0].front.get!string;
+    string result = r.asType!string;
     writeln(`result: `, result);
     assert(result == "123");
 }
@@ -126,9 +114,7 @@ void testPreparedStatement4()
     pb.put(&param1);
     pb.build();
     QueryResult r = c.execute(pb);
-    auto variants = blockToVariants(r.blocks[0]);
-    assert(variants.length == 1);
-    string result = variants[0].front.get!string;
+    string result = r.asType!string;
     writeln(`result: `, result);
     assert(result == "42");
 }

@@ -119,3 +119,13 @@ StrT[] asStructs(StrT)(const QueryResult r, bool strict = true) @trusted pure
     return res;
 }
 
+
+T asType(T)(const QueryResult r) @trusted pure
+{
+    static struct ResS
+    {
+        T val;
+    }
+    return asStruct!ResS(r, false).val;
+}
+
