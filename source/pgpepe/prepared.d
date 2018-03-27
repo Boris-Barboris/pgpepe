@@ -1,5 +1,6 @@
 module pgpepe.prepared;
 
+import std.array: Appender, appender;
 import std.container.array;
 import std.range: iota;
 public import std.typecons: Nullable;
@@ -44,6 +45,21 @@ class BasePrepared
     private bool m_named = false;
     final @property bool named() pure const { return m_named; }
 
+    final @property void sql(string rhs) pure
+    {
+        m_sql = rhs;
+        m_named = false;
+    }
+
+    final @property void hsql(const HashedSql rhs) pure
+    {
+        m_sql = rhs.m_sql;
+        m_named = true;
+        m_hash = rhs.hash;
+    }
+
+    private this() {}
+
     this(string sql)
     {
         debug lookForTsacs(sql);
@@ -54,7 +70,7 @@ class BasePrepared
     this(const HashedSql hsql)
     {
         assert(hsql.sql.length > 0, "empty sql string");
-        m_sql = hsql.sql;
+        m_sql = hsql.m_sql;
         m_named = true;
         m_hash = hsql.hash;
     }
@@ -145,9 +161,11 @@ final class Prepared(ParamTypes...): BasePrepared
         // prepare marshallng functors
         struct ParamMarsh
         {
+        pure @trusted:
+
             private int idx = 0;
             private this(int i) { idx = i; }
-            int opCall(ubyte[] buf) const
+            int opCall(ubyte[] buf) const nothrow
             {
                 return g_serializers[idx](buf, paramPtrs[idx]);
             }
@@ -155,6 +173,8 @@ final class Prepared(ParamTypes...): BasePrepared
 
         struct MarshRange
         {
+        pure @trusted:
+
             private int idx = 0;
             @property bool empty() const { return idx >= ParamTypes.length; }
             void popFront() { idx++; }
@@ -186,4 +206,105 @@ auto prepared(T...)(HashedSql hsql, T args) @system
     assert(p.m_params[1].get == "32232");
     p = prepared("SELECT;", 12.0, Nullable!string());
     assert(p.m_params[1].isNull);
+}
+
+
+final class PreparedBuilder: BasePrepared
+{
+    private bool built = false;
+    private Appender!string sqlAppender;
+
+    /// Construct unnamed (non-cached) prepared statement builder
+    this()
+    {
+        sqlAppender.reserve(64);
+    }
+
+    void build(bool named = false)
+    {
+        assert(!built, "prepared statement already built");
+        this.hsql = HashedSql(sqlAppender.data);
+        built = true;
+    }
+
+    private OID[] m_paramTypes;
+    private FormatCode[] m_fcodes;
+    private const(void)*[] m_params;
+    private SerializeF[] m_serializers;
+
+    void append(string sqlPart)
+    {
+        sqlAppender.put(sqlPart);
+    }
+
+    void add(T)(const(T)* param)
+    {
+        assert(!built, "prepared statement already built");
+        enum FieldSpec fs = specForType!T;
+        m_paramTypes ~= fs.typeId;
+        m_fcodes ~= DefaultSerializer!fs.formatCode;
+        m_params ~= param;
+        m_serializers ~= DefaultSerializer!fs.serialize;
+    }
+
+    override void parse(PgConnection.DpeqConT con, string psname = "") const
+    {
+        assert(built, "Statement is not built");
+        logDebug("Parsing prepared statement %s", m_sql);
+        con.putParseMessage(psname, m_sql, m_paramTypes);
+    }
+
+    // put bind message
+    override void bind(PgConnection.DpeqConT con, string ps, string portal) const @trusted
+    {
+        assert(built, "Statement is not built");
+
+        // prepare marshallng functors
+        static struct ParamMarsh
+        {
+        pure @trusted:
+
+            private const PreparedBuilder pb;
+            private int idx = 0;
+            this(const PreparedBuilder pb, int idx)
+            {
+                this.pb = pb;
+                this.idx = idx;
+            }
+            int opCall(ubyte[] buf) const nothrow
+            {
+                return pb.m_serializers[idx](buf, pb.m_params[idx]);
+            }
+        }
+
+        static struct MarshRange
+        {
+        pure @trusted:
+
+            const PreparedBuilder pb;
+            private int idx = 0;
+            @property bool empty() const { return idx >= pb.m_params.length; }
+            void popFront() { idx++; }
+            @property ParamMarsh front() const
+            {
+                return ParamMarsh(pb, idx);
+            }
+        }
+
+        // dpeq has shit type support, so we better stay at text format
+        con.putBindMessage(portal, ps, m_fcodes, MarshRange(this), [FormatCode.Text]);
+    }
+}
+
+@system unittest
+{
+    auto p = new PreparedBuilder();
+    p.append("select ");
+    p.append("$1 +");
+    p.append("$2;");
+    int a = 3;
+    p.add(&a);
+    int b = 4;
+    p.add(&b);
+    p.build();
 }

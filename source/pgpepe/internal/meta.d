@@ -5,24 +5,24 @@ public import std.traits: FieldNameTuple, Unqual;
 public import painlesstraits: hasAnnotation, getAnnotation;
 
 
-/** Data field descriptor. */
+/** Assignable field descriptor. */
 struct FieldMeta(T, string field_name)
 {
     alias type = T;
-    enum name = field_name;
+    enum string name = field_name;
 }
 
 
 /** This template allows to qeury field names and types of composites
 (structs or classes). */
-template allFields(T)
+template allPublicFields(T)
 {
     private template fieldNameToMeta(string field)
     {
         alias fieldNameToMeta = FieldMeta!(typeOfMember!(T, field), field);
     }
-    alias allFields = staticMap!(fieldNameToMeta, fieldNames!T);
-    static assert(allFields.length > 0, "No fields for type " ~ T.stringof);
+    alias allPublicFields = staticMap!(fieldNameToMeta, publicFieldNames!T);
+    static assert(allPublicFields.length > 0, "No fields for type " ~ T.stringof);
 }
 
 
@@ -56,17 +56,20 @@ template allFieldsWithUda(T, alias Attr)
 
 
 /** For convenience */
-alias fieldNames = FieldNameTuple;
+alias allFieldNames = FieldNameTuple;
 
-
-/** Returns type tuple of all T fields */
-template fieldTypes(T)
+template publicFieldNames(T)
 {
-    private template fieldToType(alias field)
+    alias publicFieldNames = Filter!(PublicFilter!T.filter, allFieldNames!T);
+}
+
+template PublicFilter(T)
+{
+    template filter(string attrName)
     {
-        alias fieldToType = typeOfMember!(T, field);
+        enum bool filter =
+            __traits(getProtection, __traits(getMember, T, attrName)) == "public";
     }
-    alias fieldTypes = staticMap!(fieldToType, fieldNames!T);
 }
 
 
@@ -90,7 +93,10 @@ template CanFind(alias needle)
     }
 }
 
-static assert (CanFind!"a".In!(AliasSeq!("b", "a")));
+unittest
+{
+    static assert (CanFind!"a".In!(AliasSeq!("b", "a")));
+}
 
 
 /** Template intersection */

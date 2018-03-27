@@ -38,6 +38,7 @@ void runTestList()
     testPreparedStatement1();
     testPreparedStatement2();
     testPreparedStatement3();
+    testPreparedStatement4();
     testTsac1();
     testConversion1();
 }
@@ -114,6 +115,22 @@ void testPreparedStatement3()
     string result = variants[0].front.get!string;
     writeln(`result: `, result);
     assert(result == "123");
+}
+
+void testPreparedStatement4()
+{
+    writeln(__FUNCTION__);
+    auto pb = new PreparedBuilder();
+    pb.append("SELECT $1::varchar");
+    int param1 = 42;
+    pb.add(&param1);
+    pb.build();
+    QueryResult r = c.execute(pb);
+    auto variants = blockToVariants(r.blocks[0]);
+    assert(variants.length == 1);
+    string result = variants[0].front.get!string;
+    writeln(`result: `, result);
+    assert(result == "42");
 }
 
 void testTsac1()

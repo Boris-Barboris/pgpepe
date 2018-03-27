@@ -50,7 +50,7 @@ struct RowMapper(StrT)
         short colCount = deserializeNumber!short(row[0 .. 2]);
         row = row[2 .. $];
 
-        foreach (fmeta; allFields!StrT)
+        foreach (fmeta; allPublicFields!StrT)
         {
             enum bool nullable = isNullable!(fmeta.type);
             int len = deserializeNumber(row[0 .. 4]);
@@ -92,21 +92,6 @@ struct RowMapper(StrT)
 }
 
 
-@system unittest
-{
-    struct TestStr
-    {
-        int i;
-        string s;
-
-        @(PgType.TIMESTAMP)
-        Nullable!string ts;
-    }
-
-    static assert (__traits(compiles, asStructs!TestStr(QueryResult.init)));
-}
-
-
 StrT asStruct(StrT)(const QueryResult r, bool strict = true) @trusted pure
 {
     enforce!RIE(r.blocks.length == 1, "Expected one row block");
@@ -123,7 +108,7 @@ StrT[] asStructs(StrT)(const QueryResult r, bool strict = true) @trusted pure
 {
     enforce!RIE(r.blocks.length == 1, "Expected one row block");
     const RowBlock b = r.blocks[0];
-    enforce!RIE(b.state == RowBlockState.complete, "Row block not in complete state");
+    enforce!RIE(b.state != RowBlockState.invalid, "Row block in invalid state");
     StrT[] res;
     if (b.dataRows.length == 0)
         return res;
