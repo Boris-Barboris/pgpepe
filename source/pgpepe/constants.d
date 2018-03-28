@@ -32,6 +32,7 @@ static assert (TsacConfig.sizeof == 4);
 immutable TsacConfig TSAC_DEFAULT = TsacConfig(READ_COMMITTED, false, false, false);
 immutable TsacConfig TSAC_FDEFAULT = TsacConfig(READ_COMMITTED, false, true, false);
 immutable TsacConfig TSAC_RR = TsacConfig(REPEATABLE_READ, false, false, false);
+immutable TsacConfig TSAC_RORR = TsacConfig(REPEATABLE_READ, true, false, false);
 immutable TsacConfig TSAC_FRR = TsacConfig(REPEATABLE_READ, false, true, false);
 immutable TsacConfig TSAC_SERIAL = TsacConfig(SERIALIZABLE, false, false, false);
 immutable TsacConfig TSAC_FSERIAL = TsacConfig(SERIALIZABLE, false, true, false);
@@ -39,7 +40,9 @@ immutable TsacConfig TSAC_SDEFER = TsacConfig(SERIALIZABLE, true, false, true);
 
 
 
-// Stuff, used by pgpepe:
+
+
+// Stuff, used by pgpepe itself
 
 @trusted:
 

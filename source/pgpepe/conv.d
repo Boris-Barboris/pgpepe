@@ -3,6 +3,7 @@ module pgpepe.conv;
 import std.algorithm: max;
 import std.conv;
 import std.exception: enforce;
+import std.range: enumerate, isOutputRangel;
 
 import dpeq;
 public import dpeq.result: QueryResult;
@@ -12,12 +13,14 @@ import pgpepe.internal.meta;
 import pgpepe.internal.typemap;
 
 
+@safe pure:
+
 
 alias RIE = ResultInterpretException;
 
 /** Get command tag count from the result. For example, UPDATE returns
 command tag "UPDATE rowcount". This function returns rowcount as int. */
-int asTag(scope const QueryResult r) @safe pure
+int asTag(scope const QueryResult r)
 {
     enforce!RIE(r.blocks.length == 1, "Expected one row block");
     const RowBlock b = r.blocks[0];
@@ -37,24 +40,98 @@ struct PgName
 }
 
 
+StrT asStruct(StrT)(const QueryResult r, bool strict = true,
+    in FormatCode[] resFcodes = null)
+{
+    enforce!RIE(r.blocks.length == 1, "Expected one row block");
+    const RowBlock b = r.blocks[0];
+    enforce!RIE(b.state == RowBlockState.complete, "Row block not in complete state");
+    enforce!UnexpectedRowCount(b.dataRows.length == 1, "Expected one row");
+    StrT res;
+    auto mapper = RowMapper!StrT(b.rowDesc, resFcodes);
+    mapper.map(b.dataRows[0], res, strict);
+    return res;
+}
+
+StrT[] asStructs(StrT)(const QueryResult r, bool strict = true,
+    in FormatCode[] resFcodes = null)
+{
+    enforce!RIE(r.blocks.length == 1, "Expected one row block");
+    const RowBlock b = r.blocks[0];
+    enforce!RIE(b.state != RowBlockState.invalid, "Row block in invalid state");
+    StrT[] res;
+    if (b.dataRows.length == 0)
+        return res;
+    res.length = b.dataRows.length;
+    auto mapper = RowMapper!StrT(b.rowDesc, resFcodes);
+    foreach (i, ref s; res)
+        mapper.map(b.dataRows[i], s, strict);
+    return res;
+}
+
+void asStructs(StrT, ORange)(const QueryResult r, ORange or, bool strict = true,
+    in FormatCode[] resFcodes = null) if (isOutputRangel!(ORange, StrT))
+{
+    enforce!RIE(r.blocks.length == 1, "Expected one row block");
+    const RowBlock b = r.blocks[0];
+    enforce!RIE(b.state != RowBlockState.invalid, "Row block in invalid state");
+    if (b.dataRows.length == 0)
+        return;
+    auto mapper = RowMapper!StrT(b.rowDesc, resFcodes);
+    foreach (dr; b.dataRows)
+    {
+        StrT tmp;
+        mapper.map(dr, tmp, strict);
+        or.put(tmp);
+    }
+}
+
+
+T asType(T)(const QueryResult r, in FormatCode[] resFcodes = null)
+{
+    static struct ResS
+    {
+        T val;
+    }
+    return asStruct!ResS(r, false, resFcodes).val;
+}
+
+
+
+private:
+
+
 struct RowMapper(StrT)
     if (is(StrT == struct))
 {
-    this(const RowDescription rd) @safe
+    private const FormatCode[] m_resFcodes;
+
+    this(const RowDescription rd, const FormatCode[] resFcodes)
     {
-        // TODO:
+        if (!rd.isSet)
+        {
+            m_resFcodes = resFcodes;
+            return;
+        }
+        auto tres = new FormatCode[rd.fieldCount];
+        foreach (i, col; rd[].enumerate())
+        {
+            tres[i] = col.formatCode;
+        }
+        m_resFcodes = tres;
     }
 
-    void map(immutable(ubyte)[] row, ref StrT dest, bool strict) @trusted pure
+    void map(immutable(ubyte)[] row, ref StrT dest, bool strict)
     {
         short colCount = deserializeNumber!short(row[0 .. 2]);
         row = row[2 .. $];
 
-        foreach (fmeta; allPublicFields!StrT)
+        foreach (i, fmeta; allPublicFields!StrT)
         {
             enum bool nullable = isNullable!(fmeta.type);
             int len = deserializeNumber(row[0 .. 4]);
             row = row[4..$];
+            FormatCode fcode = m_resFcodes.length > i ? m_resFcodes[i] : FormatCode.Text;
             static if (hasUda!(StrT, fmeta.name, PgType))
             {
                 // there is an OID override on this field
@@ -63,14 +140,13 @@ struct RowMapper(StrT)
                 alias NativeT = DefaultSerializer!fs.type;
                 static if (is(fmeta.type == NativeT))
                 {
-                    DefaultSerializer!fs.deserialize(row, FormatCode.Text, len,
+                    DefaultSerializer!fs.deserialize(row, fcode, len,
                         &__traits(getMember, dest, fmeta.name));
                 }
                 else
                 {
                     NativeT temp;
-                    DefaultSerializer!fs.deserialize(
-                        row, FormatCode.Text, len, &temp);
+                    DefaultSerializer!fs.deserialize(row, fcode, len, &temp);
                     __traits(getMember, dest, fmeta.name) = temp.to!(fmeta.type);
                 }
             }
@@ -81,7 +157,7 @@ struct RowMapper(StrT)
                 enum FieldSpec fs = FieldSpec(assumedOid, nullable);
                 alias NativeT = DefaultSerializer!fs.type;
                 static assert (is(fmeta.type == NativeT));
-                DefaultSerializer!fs.deserialize(row, FormatCode.Text, len,
+                DefaultSerializer!fs.deserialize(row, fcode, len,
                     &__traits(getMember, dest, fmeta.name));
             }
             row = row[max(0, len) .. $];
@@ -91,41 +167,18 @@ struct RowMapper(StrT)
     }
 }
 
-
-StrT asStruct(StrT)(const QueryResult r, bool strict = true) @trusted pure
+unittest
 {
-    enforce!RIE(r.blocks.length == 1, "Expected one row block");
-    const RowBlock b = r.blocks[0];
-    enforce!RIE(b.state == RowBlockState.complete, "Row block not in complete state");
-    enforce!UnexpectedRowCount(b.dataRows.length == 1, "Expected one row");
-    StrT res;
-    auto mapper = RowMapper!StrT(b.rowDesc);
-    mapper.map(b.dataRows[0], res, strict);
-    return res;
-}
-
-StrT[] asStructs(StrT)(const QueryResult r, bool strict = true) @trusted pure
-{
-    enforce!RIE(r.blocks.length == 1, "Expected one row block");
-    const RowBlock b = r.blocks[0];
-    enforce!RIE(b.state != RowBlockState.invalid, "Row block in invalid state");
-    StrT[] res;
-    if (b.dataRows.length == 0)
-        return res;
-    res.length = b.dataRows.length;
-    auto mapper = RowMapper!StrT(b.rowDesc);
-    foreach (i, ref s; res)
-        mapper.map(b.dataRows[i], s, strict);
-    return res;
-}
-
-
-T asType(T)(const QueryResult r) @trusted pure
-{
-    static struct ResS
+    struct TestTtruct
     {
-        T val;
+        bool row1;
+        int row2;
+        long row3;
+        double row4;
+        string row5;
+        Nullable!string row6;
+        string row7;
     }
-    return asStruct!ResS(r, false).val;
+    RowMapper!TestTtruct mapper;
 }
 

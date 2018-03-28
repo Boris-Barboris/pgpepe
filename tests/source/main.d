@@ -98,11 +98,12 @@ void testPreparedStatement2()
 void testPreparedStatement3()
 {
     writeln(__FUNCTION__);
-    auto ps = prepared("SELECT '123'");
-    QueryResult r = c.execute(ps);
-    string result = r.asType!string;
+    auto ps = prepared("SELECT '123'::int");
+    ps.resFCodes = [FormatCode.Binary];
+    QueryResult r = c.execute(ps, false);
+    int result = r.asType!int(ps.resFCodes);
     writeln(`result: `, result);
-    assert(result == "123");
+    assert(result == 123);
 }
 
 void testPreparedStatement4()

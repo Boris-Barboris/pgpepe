@@ -45,13 +45,19 @@ class BasePrepared
     private bool m_named = false;
     final @property bool named() pure const { return m_named; }
 
-    final @property void sql(string rhs) pure
+    private immutable(FormatCode)[] m_resFCodes;
+    final @property immutable(FormatCode)[] resFCodes() pure const { return m_resFCodes; }
+
+    /// Set column format codes, requested from the backend. If unset, defaults to all text.
+    final @property void resFCodes(immutable(FormatCode)[] rhs) pure { m_resFCodes = rhs; }
+
+    package final @property void sql(string rhs) pure
     {
         m_sql = rhs;
         m_named = false;
     }
 
-    final @property void hsql(const HashedSql rhs) pure
+    package final @property void hsql(const HashedSql rhs) pure
     {
         m_sql = rhs.m_sql;
         m_named = true;
@@ -185,7 +191,7 @@ final class Prepared(ParamTypes...): BasePrepared
         }
 
         // dpeq has shit type support, so we better stay at text format
-        con.putBindMessage(portal, ps, g_formatCodes[], MarshRange(), [FormatCode.Text]);
+        con.putBindMessage(portal, ps, g_formatCodes[], MarshRange(), m_resFCodes);
     }
 }
 
@@ -292,7 +298,7 @@ final class PreparedBuilder: BasePrepared
         }
 
         // dpeq has shit type support, so we better stay at text format
-        con.putBindMessage(portal, ps, m_fcodes, MarshRange(this), [FormatCode.Text]);
+        con.putBindMessage(portal, ps, m_fcodes, MarshRange(this), m_resFCodes);
     }
 }
 
