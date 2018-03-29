@@ -99,7 +99,7 @@ T asType(T)(const QueryResult r, in FormatCode[] resFcodes = null)
 
 /// Returns array of preferrable format codes for the result wich perfectly
 /// maps to struct.
-FormatCode[] fcodesForStruct(T)()
+immutable(FormatCode)[] fcodesForStruct(T)() @trusted
     if (is(T == struct))
 {
     FormatCode[] result;
@@ -107,7 +107,7 @@ FormatCode[] fcodesForStruct(T)()
     result.length = allPubs.length;
     foreach (i, fmeta; allPubs)
         result[i] = fcodeForField!(T, fmeta.name);
-    return result;
+    return cast(immutable(FormatCode)[]) result;
 }
 
 
