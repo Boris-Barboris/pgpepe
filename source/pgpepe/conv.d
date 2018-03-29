@@ -3,6 +3,7 @@ module pgpepe.conv;
 import std.algorithm: max;
 import std.conv;
 import std.exception: enforce;
+import std.traits: OriginalType;
 import std.range: enumerate, isOutputRange;
 
 import dpeq;
@@ -181,9 +182,19 @@ struct RowMapper(StrT)
                 enum OID assumedOid = oidForType!(fmeta.type);
                 enum FieldSpec fs = FieldSpec(assumedOid, nullable);
                 alias NativeT = DefaultSerializer!fs.type;
-                static assert (is(fmeta.type == NativeT));
-                DefaultSerializer!fs.deserialize(row, fcode, len,
-                    &__traits(getMember, dest, fmeta.name));
+                static if (is(fmeta.type == enum))
+                {
+                    static assert (is(OriginalType!(fmeta.type) == NativeT));
+                    NativeT temp;
+                    DefaultSerializer!fs.deserialize(row, fcode, len, &temp);
+                    __traits(getMember, dest, fmeta.name) = temp.to!(fmeta.type);
+                }
+                else
+                {
+                    static assert (is(fmeta.type == NativeT));
+                    DefaultSerializer!fs.deserialize(row, fcode, len,
+                        &__traits(getMember, dest, fmeta.name));
+                }
             }
             row = row[max(0, len) .. $];
             colCount--;

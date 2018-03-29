@@ -168,14 +168,20 @@ void testConversion1()
         row5 money,
         row6 timestamp,
         row7 text);");
-    c.execute(`insert into testt2 values ('t', 4, 42, 46.0, '12.23', null, 'sometext');`);
+    c.execute(`insert into testt2 values ('t', 1, 42, 46.0, '12.23', null, 'sometext');`);
     auto r = c.execute(`select * from testt2`);
     assert(r.asTag == 1);
+
+    enum TestEnum: int
+    {
+        zero = 0,
+        one = 1
+    }
 
     static struct ResS
     {
         bool row1;
-        int row2;
+        TestEnum row2;
         long row3;
         double row4;
         string row5;
@@ -185,7 +191,7 @@ void testConversion1()
 
     ResS res = r.asStruct!ResS;
     assert(res.row1 == true);
-    assert(res.row2 == 4);
+    assert(res.row2 == TestEnum.one);
     assert(res.row3 == 42);
     assert(res.row4 == 46.0);
     assert(res.row5 == "$12.23");

@@ -55,6 +55,8 @@ OID oidForType(QT)()
         return PgType.REAL;
     else static if (is(T == double))
         return PgType.DOUBLE;
+    else static if (is(T == enum))
+        return oidForType!(OriginalType!T)();
     else
         static assert (0, "Unsupported type " ~ T.stringof);
 }
