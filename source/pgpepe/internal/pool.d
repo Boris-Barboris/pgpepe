@@ -4,6 +4,7 @@ import core.time: Duration, minutes;
 import std.algorithm;
 
 import vibe.core.log;
+import vibe.core.sync: LocalTaskSemaphore;
 
 import pgpepe.constants;
 import pgpepe.connection;
@@ -29,18 +30,37 @@ final class PgConnectionPool
         m_slowPoolSize = slowPoolSize;
         m_fastCons.reserve(fastPoolSize);
         m_slowCons.reserve(slowPoolSize);
+        m_fastSema = new LocalTaskSemaphore(m_fastPoolSize * m_settings.queueCapacity);
+        m_slowSema = new LocalTaskSemaphore(m_slowPoolSize);
     }
 
     private PgConnection[] m_fastCons;
     private PgConnection[] m_slowCons;
+    private LocalTaskSemaphore m_fastSema;
+    private LocalTaskSemaphore m_slowSema;
 
-    /// schedule transaction on one connection
-    PgConnection getConnection(bool fast)
+    /// Schedule transaction on one connection. Blocks on internal semaphore.
+    /// Call release after you're done.
+    PgConnection lock(bool fast)
     {
         if (fast)
+        {
+            m_fastSema.lock();
             return chooseFromArray(m_fastCons, m_fastPoolSize, 9);
+        }
         else
+        {
+            m_slowSema.lock();
             return chooseFromArray(m_slowCons, m_slowPoolSize, 2);
+        }
+    }
+
+    void unlock(bool fast)
+    {
+        if (fast)
+            m_fastSema.unlock();
+        else
+            m_slowSema.unlock();
     }
 
     private PgConnection chooseFromArray(ref PgConnection[] pool,

@@ -40,7 +40,7 @@ final class PgFuture
                     (cast(PsqlErrorResponseException) m_err).notice, m_err);
             if (typeid(m_err) is typeid(PsqlSocketException))
                 throw new PsqlSocketException(m_err.msg, m_err);
-            throw new Exception(m_err.msg, m_err);
+            throw m_err;
         }
     }
 

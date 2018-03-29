@@ -180,7 +180,8 @@ final class PgConnector
         logDebug(`execute sql: "%s"`, sql);
         withRetries(() {
             PgConnectionPool cp = choosePool(tc);
-            PgConnection c = cp.getConnection(tc.fast);
+            PgConnection c = cp.lock(tc.fast);
+            scope(exit) cp.unlock(tc.fast);
             PgFuture valFuture;
             PgFuture tsacFuture = c.runInTsac(tc, (scope PgConnection pgc) {
                 valFuture = pgc.execute(sql);
@@ -189,7 +190,8 @@ final class PgConnector
             tsacFuture.throwIfErr();
             result = valFuture.result;
         });
-        logDebug(`received %d row block(s)`, result.blocks.length);
+        if (result.blocks.length > 0)
+            logDebug(`received %d rows in first row block`, result.blocks[0].dataRows.length);
         return result;
     }
 
@@ -202,7 +204,8 @@ final class PgConnector
         logDebug(`execute prepared`);
         withRetries(() {
             PgConnectionPool cp = choosePool(tc);
-            PgConnection c = cp.getConnection(tc.fast);
+            PgConnection c = cp.lock(tc.fast);
+            scope(exit) cp.unlock(tc.fast);
             PgFuture valFuture;
             PgFuture tsacFuture = c.runInTsac(tc, (scope PgConnection pgc) {
                 valFuture = pgc.execute(p, describe);
@@ -211,7 +214,8 @@ final class PgConnector
             tsacFuture.throwIfErr();
             result = valFuture.result;
         });
-        logDebug(`received %d row block(s)`, result.blocks.length);
+        if (result.blocks.length > 0)
+            logDebug(`received %d rows in first row block`, result.blocks[0].dataRows.length);
         return result;
     }
 
@@ -222,7 +226,8 @@ final class PgConnector
         scope(exit) unlockTransaction();
         withRetries(() {
             PgConnectionPool cp = choosePool(tc);
-            PgConnection c = cp.getConnection(tc.fast);
+            PgConnection c = cp.lock(tc.fast);
+            scope(exit) cp.unlock(tc.fast);
             PgFuture tsacFuture = c.runInTsac(tc, tsacBody);
             tsacFuture.throwIfErr();
         });
