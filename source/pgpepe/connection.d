@@ -43,7 +43,7 @@ enum ConnectionState: byte
 /** Transaction body delegate signature. Run queries while exclusively owning
 connection object and return (commit is issued by pgpepe on return, or
 rollback if something was thrown). */
-alias TsacDlg = void delegate(scope PgConnection) @safe;
+alias TsacDlg = void delegate(scope PgConnection) @trusted;
 
 
 final class PgConnection
@@ -247,11 +247,14 @@ final class PgConnection
             }
             catch (Exception ex)
             {
-                logDebugV("%s caught in readerTask: %s", ex.classinfo.name, ex.msg);
                 if (future !is null)
+                {
+                    logDebugV("%s caught in readerTask: %s", ex.classinfo.name, ex.msg);
                     future.complete(ex);
+                }
                 else
-                    logWarn("ignoring exception, no accepting future");
+                    logError("Ignoring exception %s %s, no accepting future",
+                        ex.classinfo.name, ex.msg);
             }
         }
     }
@@ -369,8 +372,7 @@ final class PgConnection
                 m_con.flush();
                 auto parseFuture = new PgFuture();
                 m_resultQueue.pushBack(parseFuture);
-                if (parseFuture.err)
-                    throw parseFuture.err;
+                parseFuture.throwIfErr();
                 m_psCache[p.hash] = newName;
                 p.bind(m_con, newName, "");
             }

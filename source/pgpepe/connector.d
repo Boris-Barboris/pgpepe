@@ -44,7 +44,7 @@ struct ConnectorSettings
     IsolationLevel defaultIsolation = READ_COMMITTED;
     /// Capacity of connection's pipeline queue. Equals to maximum number of queries
     /// sent but not yet received.
-    uint queueCapacity = 256;
+    uint queueCapacity = 64;
     /// Maximum number of concurrent transactions in progress.
     uint tsacQueueLimit = 2048;
     /// If true (default), arriving transactions on top of tsacQueueLimit will
@@ -185,10 +185,8 @@ final class PgConnector
             PgFuture tsacFuture = c.runInTsac(tc, (scope PgConnection pgc) {
                 valFuture = pgc.execute(sql);
             });
-            if (valFuture.err)
-                throw valFuture.err;
-            if (tsacFuture.err)
-                throw tsacFuture.err;
+            valFuture.throwIfErr();
+            tsacFuture.throwIfErr();
             result = valFuture.result;
         });
         logDebug(`received %d row block(s)`, result.blocks.length);
@@ -209,10 +207,8 @@ final class PgConnector
             PgFuture tsacFuture = c.runInTsac(tc, (scope PgConnection pgc) {
                 valFuture = pgc.execute(p, describe);
             }, true);   // implicit transaction scope is ok here
-            if (valFuture.err)
-                throw valFuture.err;
-            if (tsacFuture.err)
-                throw tsacFuture.err;
+            valFuture.throwIfErr();
+            tsacFuture.throwIfErr();
             result = valFuture.result;
         });
         logDebug(`received %d row block(s)`, result.blocks.length);
@@ -228,8 +224,7 @@ final class PgConnector
             PgConnectionPool cp = choosePool(tc);
             PgConnection c = cp.getConnection(tc.fast);
             PgFuture tsacFuture = c.runInTsac(tc, tsacBody);
-            if (tsacFuture.err)
-                throw tsacFuture.err;
+            tsacFuture.throwIfErr();
         });
     }
 }

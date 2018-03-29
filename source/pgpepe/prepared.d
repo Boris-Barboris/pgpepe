@@ -34,7 +34,7 @@ struct HashedSql
 }
 
 
-class BasePrepared
+abstract class BasePrepared
 {
     private string m_sql;
     final @property string sql() pure const { return m_sql; }
@@ -51,13 +51,13 @@ class BasePrepared
     /// Set column format codes, requested from the backend. If unset, defaults to all text.
     final @property void resFCodes(immutable(FormatCode)[] rhs) pure { m_resFCodes = rhs; }
 
-    package final @property void sql(string rhs) pure
+    protected final @property void sql(string rhs) pure
     {
         m_sql = rhs;
         m_named = false;
     }
 
-    package final @property void hsql(const HashedSql rhs) pure
+    protected final @property void hsql(const HashedSql rhs) pure
     {
         m_sql = rhs.m_sql;
         m_named = true;
@@ -108,24 +108,9 @@ final class Prepared(ParamTypes...): BasePrepared
         m_params = params;
     }
 
-    static if (ParamTypes.length > 0)
-    {
-        /// Construct named (cached) prepared statement
-        this(const HashedSql hsql)
-        {
-            super(hsql);
-        }
-    }
-
-    /// override params
-    final void setParams(ParamTypes params)
-    {
-        m_params = params;
-    }
-
     private
     {
-        ParamTypes m_params;
+        const ParamTypes m_params;
 
         // static type-specific data
         static immutable OID[ParamTypes.length] g_paramOids;
@@ -141,7 +126,10 @@ final class Prepared(ParamTypes...): BasePrepared
         static foreach (i; iota(0, ParamTypes.length))
         {{
             enum FieldSpec spec = specForType!(ParamTypes[i]);
-            t_oids[i] = spec.typeId;
+            static if (spec.typeId == PgType.VARCHAR)
+                t_oids[i] = 0;
+            else
+                t_oids[i] = spec.typeId;
             t_fcodes[i] = DefaultSerializer!spec.formatCode;
             t_serial[i] = cast(SerializeF) DefaultSerializer!spec.serialize;
         }}
@@ -221,15 +209,29 @@ final class PreparedBuilder: BasePrepared
     private Appender!string sqlAppender;
 
     /// Construct unnamed (non-cached) prepared statement builder
-    this()
+    this(short estParamCount = 8)
     {
         sqlAppender.reserve(64);
+        m_paramTypes.reserve(estParamCount);
+        m_fcodes.reserve(estParamCount);
+        m_params.reserve(estParamCount);
+        m_serializers.reserve(estParamCount);
     }
 
     void build(bool named = false)
     {
         assert(!built, "prepared statement already built");
-        this.hsql = HashedSql(sqlAppender.data);
+        if (named)
+            this.hsql = HashedSql(sqlAppender.data);
+        else
+            this.sql = sqlAppender.data;
+        built = true;
+    }
+
+    void build(HashedSql hsql)
+    {
+        assert(!built, "prepared statement already built");
+        this.hsql = hsql;
         built = true;
     }
 
@@ -247,7 +249,10 @@ final class PreparedBuilder: BasePrepared
     {
         assert(!built, "prepared statement already built");
         enum FieldSpec fs = specForType!T;
-        m_paramTypes ~= fs.typeId;
+        static if (fs.typeId == PgType.VARCHAR)
+            m_paramTypes ~= 0;
+        else
+            m_paramTypes ~= fs.typeId;
         m_fcodes ~= DefaultSerializer!fs.formatCode;
         m_params ~= param;
         m_serializers ~= DefaultSerializer!fs.serialize;
@@ -302,9 +307,14 @@ final class PreparedBuilder: BasePrepared
     }
 }
 
+auto preparedBuilder() @system
+{
+    return scoped!PreparedBuilder();
+}
+
 @system unittest
 {
-    auto p = new PreparedBuilder();
+    auto p = preparedBuilder();
     p.append("select ");
     p.append("$1 +");
     p.append("$2;");

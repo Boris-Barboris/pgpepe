@@ -3,7 +3,7 @@ module pgpepe.conv;
 import std.algorithm: max;
 import std.conv;
 import std.exception: enforce;
-import std.range: enumerate, isOutputRangel;
+import std.range: enumerate, isOutputRange;
 
 import dpeq;
 public import dpeq.result: QueryResult;
@@ -11,9 +11,10 @@ public import dpeq.result: QueryResult;
 import pgpepe.exceptions;
 import pgpepe.internal.meta;
 import pgpepe.internal.typemap;
+public import pgpepe.internal.typemap: isNullable;
 
 
-@safe pure:
+@safe:
 
 
 alias RIE = ResultInterpretException;
@@ -69,8 +70,8 @@ StrT[] asStructs(StrT)(const QueryResult r, bool strict = true,
     return res;
 }
 
-void asStructs(StrT, ORange)(const QueryResult r, ORange or, bool strict = true,
-    in FormatCode[] resFcodes = null) if (isOutputRangel!(ORange, StrT))
+void asStructs(StrT, ORange)(const QueryResult r, ref ORange or, bool strict = true,
+    in FormatCode[] resFcodes = null) if (isOutputRange!(ORange, StrT))
 {
     enforce!RIE(r.blocks.length == 1, "Expected one row block");
     const RowBlock b = r.blocks[0];
@@ -96,9 +97,33 @@ T asType(T)(const QueryResult r, in FormatCode[] resFcodes = null)
     return asStruct!ResS(r, false, resFcodes).val;
 }
 
+/// Returns array of preferrable format codes for the result wich perfectly
+/// maps to struct.
+FormatCode[] fcodesForStruct(T)()
+    if (is(T == struct))
+{
+    FormatCode[] result;
+    alias allPubs = allPublicFields!T;
+    result.length = allPubs.length;
+    foreach (i, fmeta; allPubs)
+        result[i] = fcodeForField!(T, fmeta.name);
+    return result;
+}
+
 
 
 private:
+
+
+template fcodeForField(StrT, string f)
+{
+    static if (hasUda!(StrT, f, PgType))
+        private enum OID oid = getUda!(StrT, f, PgType);
+    else
+        private enum OID oid = oidForType!(typeof(__traits(getMember, StrT, f)));
+    private enum FieldSpec fs = FieldSpec(oid, true);
+    enum FormatCode fcodeForField = DefaultSerializer!fs.formatCode;
+}
 
 
 struct RowMapper(StrT)
@@ -106,7 +131,7 @@ struct RowMapper(StrT)
 {
     private const FormatCode[] m_resFcodes;
 
-    this(const RowDescription rd, const FormatCode[] resFcodes)
+    this(const RowDescription rd, const FormatCode[] resFcodes = null)
     {
         if (!rd.isSet)
         {
@@ -121,7 +146,7 @@ struct RowMapper(StrT)
         m_resFcodes = tres;
     }
 
-    void map(immutable(ubyte)[] row, ref StrT dest, bool strict)
+    void map(immutable(ubyte)[] row, ref StrT dest, bool strict) @trusted
     {
         short colCount = deserializeNumber!short(row[0 .. 2]);
         row = row[2 .. $];

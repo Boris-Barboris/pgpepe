@@ -12,6 +12,8 @@ template isNullable(T)
     enum isNullable = isInstanceOf!(Nullable, T);
 }
 
+static assert (isNullable!(const(Nullable!(const(double)))));
+
 FieldSpec specForType(NullableT)()
     if (isNullable!NullableT)
 {
@@ -28,14 +30,15 @@ FieldSpec specForType(T)()
 OID oidForType(NullableT)()
     if (isNullable!NullableT)
 {
-    alias T = TemplateArgsOf!NullableT;
+    alias T = Unqual!(TemplateArgsOf!NullableT);
     static assert (!isInstanceOf!(Nullable, T), "nested nullable");
     return oidForType!T();
 }
 
-OID oidForType(T)()
-    if (!isNullable!T)
+OID oidForType(QT)()
+    if (!isNullable!QT)
 {
+    alias T = Unqual!QT;
     static if (is(T == bool))
         return PgType.BOOLEAN;
     else static if (is(T == long))
@@ -53,7 +56,7 @@ OID oidForType(T)()
     else static if (is(T == double))
         return PgType.DOUBLE;
     else
-        assert (0, "Unsupported type");
+        static assert (0, "Unsupported type " ~ T.stringof);
 }
 
 unittest

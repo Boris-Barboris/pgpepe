@@ -1,5 +1,6 @@
 module pgpepe.future;
 
+public import dpeq.exceptions;
 public import dpeq.result: QueryResult;
 import vibe.core.log;
 import vibe.core.sync: LocalManualEvent;
@@ -28,13 +29,26 @@ final class PgFuture
         return m_err;
     }
 
+    /// Blocks fiber until completed and then throws if error.
+    void throwIfErr()
+    {
+        await();
+        if (m_err !is null)
+        {
+            if (typeid(m_err) is typeid(PsqlErrorResponseException))
+                throw new PsqlErrorResponseException(
+                    (cast(PsqlErrorResponseException) m_err).notice, m_err);
+            if (typeid(m_err) is typeid(PsqlSocketException))
+                throw new PsqlSocketException(m_err.msg, m_err);
+            throw new Exception(m_err.msg, m_err);
+        }
+    }
+
     /// Blocks fiber until completed and returns query result, or throws if
     /// future was completed with an error.
     @property QueryResult result()
     {
-        await();
-        if (m_err !is null)
-            throw m_err;
+        throwIfErr();
         return m_result;
     }
 
