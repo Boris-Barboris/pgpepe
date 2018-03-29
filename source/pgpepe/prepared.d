@@ -245,6 +245,11 @@ final class PreparedBuilder: BasePrepared
         sqlAppender.put(sqlPart);
     }
 
+    void append(char sqlPart)
+    {
+        sqlAppender.put(sqlPart);
+    }
+
     void put(T)(const(T)* param)
     {
         assert(!built, "prepared statement already built");
