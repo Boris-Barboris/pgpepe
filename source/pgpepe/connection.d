@@ -201,6 +201,7 @@ final class PgConnection
             m_con.flush();
             m_con.pollMessages(null);
         }
+        logDebug("Connection initialized");
     }
 
     // mutex that guards connection's write buffer and only lets in one

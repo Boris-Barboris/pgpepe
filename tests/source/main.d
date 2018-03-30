@@ -22,7 +22,7 @@ shared static this()
 
 void main()
 {
-    setLogLevel(LogLevel.debugV);
+    setLogLevel(LogLevel.debug_);
     setLogFormat(FileLogger.Format.threadTime, FileLogger.Format.threadTime);
     Task t = runTask(&runTestList);
     runEventLoop();
@@ -41,6 +41,7 @@ void runTestList()
     testPreparedStatement4();
     testTsac1();
     testConversion1();
+    testParrallel1();
 }
 
 void testSimpleQuery1()
@@ -197,4 +198,50 @@ void testConversion1()
     assert(res.row5 == "$12.23");
     assert(res.row6.isNull);
     assert(res.row7 == "sometext");
+}
+
+void testParrallel1()
+{
+    writeln(__FUNCTION__);
+
+    // two rw backends and two ro backends
+    immutable ConnectorSettings schedConSets = immutable ConnectorSettings(
+        [BackendParams("127.0.0.1", ushort(5432), "postgres", "r00tme", "pgpepetestdb"),
+        BackendParams("127.0.0.1", ushort(5432), "postgres", "r00tme", "pgpepetestdb")],
+        [BackendParams("127.0.0.1", ushort(5432), "postgres", "r00tme", "pgpepetestdb"),
+        BackendParams("127.0.0.1", ushort(5432), "postgres", "r00tme", "pgpepetestdb")],
+        2, 0);
+
+    PgConnector pc = new PgConnector(schedConSets);
+
+    bool[int] rw_pids;
+    bool[int] ro_pids;
+
+    void taskFunc(bool ro)
+    {
+        TsacConfig tc = TSAC_FDEFAULT;
+        tc.readonly = ro;
+        auto r = pc.execute("SELECT pg_backend_pid()", tc);
+        if (ro)
+            ro_pids[r.asType!int] = true;
+        else
+            rw_pids[r.asType!int] = true;
+    }
+
+    Task[] tasks = new Task[128];
+    for (size_t i = 0; i < 128; i++)
+        tasks[i] = runTask(() { taskFunc(false); });
+    for (size_t i = 0; i < 128; i++)
+        tasks[i].join();
+    for (size_t i = 0; i < 128; i++)
+        tasks[i] = runTask(() { taskFunc(true); });
+    for (size_t i = 0; i < 128; i++)
+        tasks[i].join();
+    assert(rw_pids.length == 4);
+    assert(ro_pids.length == 4);
+
+    import std.algorithm;
+    writeln("readonly backend pids: ", ro_pids.keys);
+    writeln("read-write backend pids: ", rw_pids.keys);
+    assert(setIntersection(sort(rw_pids.keys), sort(ro_pids.keys)).empty);
 }

@@ -22,6 +22,11 @@ struct TsacConfig
 {
     IsolationLevel isolation = READ_COMMITTED;
     bool readonly = false;
+    /**  Transaction should be marked as fast if it:
+        1. Does not require round-trips, e.g. subsequent queries do not depend
+            on the result of previous ones and are issued in batched manner.
+        2. Time, required to process this transaction by postgres is around
+            millisecond or less.  */
     bool fast = true;
     /// useful for serializable readonly, consult Psql docks
     bool deferrable = false;

@@ -13,4 +13,3 @@ script:
   - cd tests && dub -b debug
   - psql -c 'drop database pgpepetestdb;' -U postgres
   - psql -c 'create database pgpepetestdb;' -U postgres
-  - cd tests && dub -b release
