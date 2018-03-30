@@ -4,3 +4,4 @@ dub.selections.json
 pgpepe_test*
 pgpepe-test*
 *.lib
+*.db
