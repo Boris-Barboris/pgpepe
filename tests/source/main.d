@@ -39,6 +39,7 @@ void runTestList()
     testPreparedStatement2();
     testPreparedStatement3();
     testPreparedStatement4();
+    testPreparedStatement5();
     testTsac1();
     testConversion1();
     testParrallel1();
@@ -110,7 +111,7 @@ void testPreparedStatement3()
 void testPreparedStatement4()
 {
     writeln(__FUNCTION__);
-    auto pb = new PreparedBuilder();
+    auto pb = preparedBuilder();
     pb.append("SELECT $1::varchar");
     int param1 = 42;
     pb.put(&param1);
@@ -119,6 +120,22 @@ void testPreparedStatement4()
     string result = r.asType!string;
     writeln(`result: `, result);
     assert(result == "42");
+}
+
+void testPreparedStatement5()
+{
+    writeln(__FUNCTION__);
+    auto ps = prepared("SELECT '123'::text, 14::real");
+    struct ResT
+    {
+        string txtfield;
+        float floatfield;
+    }
+    ps.resFCodes = fcodesForStruct!ResT;
+    ResT result = c.execute(ps).asStruct!ResT;
+    writeln(`result: `, result);
+    assert(result.txtfield == "123");
+    assert(result.floatfield == 14.0f);
 }
 
 void testTsac1()

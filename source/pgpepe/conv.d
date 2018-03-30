@@ -100,15 +100,31 @@ T asType(T)(const QueryResult r, in FormatCode[] resFcodes = null)
 
 /// Returns array of preferrable format codes for the result wich perfectly
 /// maps to struct.
-immutable(FormatCode)[] fcodesForStruct(T)() @trusted
+template fcodesForStruct(T)
     if (is(T == struct))
 {
-    FormatCode[] result;
-    alias allPubs = allPublicFields!T;
-    result.length = allPubs.length;
-    foreach (i, fmeta; allPubs)
-        result[i] = fcodeForField!(T, fmeta.name);
-    return cast(immutable(FormatCode)[]) result;
+    static immutable(FormatCode[]) fcodesForStruct;
+    shared static this() @trusted
+    {
+        FormatCode[] result;
+        alias allPubs = allPublicFields!T;
+        result.length = allPubs.length;
+        foreach (i, fmeta; allPubs)
+            result[i] = fcodeForField!(T, fmeta.name);
+        fcodesForStruct = cast(immutable(FormatCode[])) result;
+    }
+}
+
+
+unittest
+{
+    struct TestS
+    {
+        double v1;
+        string v2;
+    }
+    auto fcodes = fcodesForStruct!TestS;
+    assert(fcodes == [FormatCode.Binary, FormatCode.Text]);
 }
 
 

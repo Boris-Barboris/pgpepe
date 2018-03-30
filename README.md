@@ -4,6 +4,8 @@
 Pgpepe is a library for D that should help you tackle mundane tasks of issuing requests
 to Postgres cluster from your vibe-d service. It is dependent on vibe-core library and witten specifically for it.
 
+For usega examples, have a look at the tests in tests/source/main.d.
+
 ## Cartoons
 
 ![high-level overview](https://raw.githubusercontent.com/Boris-Barboris/pgpepe/master/docs/pgpepe-high-level.png "Overview")
