@@ -143,11 +143,11 @@ void testTsac1()
     writeln(__FUNCTION__);
     try
     {
-        // should throw
-        c.transaction((scope c) {
-                auto createF = c.execute("create table haskdhja adk;");
-                createF.result();
+        c.transaction((scope PgConnection c) {
+                PgFuture createF = c.execute("create table haskdhja adk;");
+                createF.throwIfErr();
             });
+        assert(0, "should have thrown");
     }
     catch (PsqlErrorResponseException pex)
     {
@@ -156,15 +156,14 @@ void testTsac1()
     c.execute("create table testt1 (somerow boolean);");
     c.transaction((scope sc) {
         auto lockF = sc.execute("lock table testt1 in ACCESS EXCLUSIVE MODE;");
-        lockF.result();
-        // another transaction with the same lock
+        lockF.throwIfErr();
         try
         {
             PgConnector c2 = new PgConnector(conSets);
+            // same table lock should fail
             c2.transaction((scope sc) {
                 auto lockF2 = sc.execute("lock table testt1 in ACCESS EXCLUSIVE MODE NOWAIT;");
-                assert(lockF2.err !is null);
-                throw lockF2.err;
+                lockF2.throwIfErr();
             });
             assert(0, "should have thrown");
         }

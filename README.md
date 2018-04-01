@@ -49,6 +49,41 @@ void testPreparedStatement2()
     assert(result.txtfield == "123");
     assert(result.floatfield == 14.0f);
 }
+
+void testTsac1()
+{
+    try
+    {
+        c.transaction((scope PgConnection c) {
+                PgFuture createF = c.execute("create table haskdhja adk;");
+                createF.throwIfErr();
+            });
+        assert(0, "should have thrown");
+    }
+    catch (PsqlErrorResponseException pex)
+    {
+        writeln("caught as expected: ", pex.msg);
+    }
+    c.execute("create table testt1 (somerow boolean);");
+    c.transaction((scope sc) {
+        auto lockF = sc.execute("lock table testt1 in ACCESS EXCLUSIVE MODE;");
+        lockF.throwIfErr();
+        try
+        {
+            PgConnector c2 = new PgConnector(conSets);
+            // same table lock should fail
+            c2.transaction((scope sc) {
+                auto lockF2 = sc.execute("lock table testt1 in ACCESS EXCLUSIVE MODE NOWAIT;");
+                lockF2.throwIfErr();
+            });
+            assert(0, "should have thrown");
+        }
+        catch (PsqlErrorResponseException pex)
+        {
+            writeln("caught as expected: ", pex.msg, ", sqlcode ", pex.notice.code);
+        }
+    });
+}
 ```
 
 ## Cartoons
