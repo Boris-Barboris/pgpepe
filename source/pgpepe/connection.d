@@ -227,9 +227,6 @@ final class PgConnection
             }
             catch (PsqlSocketException ex)
             {
-                // Socket has thrown, most probably we are dealing with
-                // closed connection. We need to flush resultQueue and
-                // report this error to everyone.
                 logInfo("Connection to %s is assumed closed",
                     m_settings.backendParam.host);
                 m_state = ConnectionState.closed;
@@ -324,21 +321,34 @@ final class PgConnection
             m_resultQueue.pushBack(commitFuture);
             return commitFuture;
         }
-        catch (Exception e)
+        catch (PsqlSocketException ex)
+        {
+            logError("socket error in transaction: %s", ex.msg);
+            m_state = ConnectionState.closed;
+            m_resultQueue.pushBack(null);
+            throw ex;
+        }
+        catch (Exception ex)
         {
             if (!explicitTsac)
             {
                 logDiagnostic("%s rethrown from implicit rollback: %s",
-                    e.classinfo.name, e.msg);
-                throw e;
+                    ex.classinfo.name, ex.msg);
+                throw ex;
             }
-            PgFuture failFuture = new PgFuture();
-            failFuture.complete(e);
-            logDiagnostic("%s caught, explicit rollback: %s", e.classinfo.name, e.msg);
-            m_con.putQueryMessage("ROLLBACK");
-            m_con.flush();
+            logDiagnostic("%s caught, explicit rollback: %s", ex.classinfo.name, ex.msg);
+            if (m_con.isOpen)
+            {
+                m_con.putQueryMessage("ROLLBACK");
+                m_con.flush();
+            }
+            else
+            {
+                m_state = ConnectionState.closed;
+                throw new PsqlSocketException("Unable to rollback using closed connection");
+            }
             m_resultQueue.pushBack(null);   // rollback result is uninteresting
-            return failFuture;
+            throw ex;
         }
     }
 
@@ -358,8 +368,6 @@ final class PgConnection
     /// Execute prepared statement
     PgFuture execute(scope BasePrepared p, bool describe = true, PgFuture f = null)
     {
-        if (f is null)
-            f = new PgFuture();
         if (p.named)
         {
             string* psName = p.hash in m_psCache;
@@ -393,6 +401,8 @@ final class PgConnection
         m_con.putExecuteMessage("");
         m_con.sync();
         m_con.flush();
+        if (f is null)
+            f = new PgFuture();
         m_resultQueue.pushBack(f);
         return f;
     }

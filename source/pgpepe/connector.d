@@ -37,7 +37,7 @@ struct ConnectorSettings
     /// issuing slow transactions.
     uint slowPoolSize = 8;
     /// TCP connection timeout.
-    Duration connectionTimeout = seconds(10);
+    Duration connectionTimeout = seconds(5);
     /// This isolation level is set on the connection start using
     /// SET SESSION CHARACTERISTICS AS TRANSACTION ... query.
     IsolationLevel defaultIsolation = READ_COMMITTED;
