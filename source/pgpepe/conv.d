@@ -43,7 +43,7 @@ struct PgName
 
 
 StrT asStruct(StrT)(const QueryResult r, bool strict = true,
-    in FormatCode[] resFcodes = null)
+    immutable(FormatCode)[] resFcodes = null)
 {
     enforce!RIE(r.blocks.length == 1, "Expected one row block");
     const RowBlock b = r.blocks[0];
@@ -56,7 +56,7 @@ StrT asStruct(StrT)(const QueryResult r, bool strict = true,
 }
 
 StrT[] asStructs(StrT)(const QueryResult r, bool strict = true,
-    in FormatCode[] resFcodes = null)
+    immutable(FormatCode)[] resFcodes = null)
 {
     enforce!RIE(r.blocks.length == 1, "Expected one row block");
     const RowBlock b = r.blocks[0];
@@ -72,7 +72,7 @@ StrT[] asStructs(StrT)(const QueryResult r, bool strict = true,
 }
 
 void asStructs(StrT, ORange)(const QueryResult r, ref ORange or, bool strict = true,
-    in FormatCode[] resFcodes = null) if (isOutputRange!(ORange, StrT))
+    immutable(FormatCode)[] resFcodes = null) if (isOutputRange!(ORange, StrT))
 {
     enforce!RIE(r.blocks.length == 1, "Expected one row block");
     const RowBlock b = r.blocks[0];
@@ -89,7 +89,7 @@ void asStructs(StrT, ORange)(const QueryResult r, ref ORange or, bool strict = t
 }
 
 
-T asType(T)(const QueryResult r, in FormatCode[] resFcodes = null)
+T asType(T)(const QueryResult r, immutable(FormatCode)[] resFcodes = null)
 {
     static struct ResS
     {
@@ -146,9 +146,9 @@ template fcodeForField(StrT, string f)
 struct RowMapper(StrT)
     if (is(StrT == struct))
 {
-    private const FormatCode[] m_resFcodes;
+    private immutable(FormatCode)[] m_resFcodes;
 
-    this(const RowDescription rd, const FormatCode[] resFcodes = null)
+    this(const RowDescription rd, immutable(FormatCode)[] resFcodes = null) @trusted
     {
         if (!rd.isSet)
         {
@@ -160,7 +160,7 @@ struct RowMapper(StrT)
         {
             tres[i] = col.formatCode;
         }
-        m_resFcodes = tres;
+        m_resFcodes = cast(immutable(FormatCode)[]) tres;
     }
 
     void map(immutable(ubyte)[] row, ref StrT dest, bool strict) @trusted
