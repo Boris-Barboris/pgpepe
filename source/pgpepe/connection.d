@@ -291,7 +291,7 @@ final class PgConnection
 
     // returns future to commit result
     package PgFuture runInTsac(in TsacConfig tc, scope TsacDlg tsacBody,
-        bool allowImplicit = false)
+        bool allowImplicit = false) @trusted
     {
         assert(tc.readonly || !m_settings.readonly,
             "write transaction on read-only connection");
@@ -328,15 +328,15 @@ final class PgConnection
             m_resultQueue.pushBack(null);
             throw ex;
         }
-        catch (Exception ex)
+        catch (Throwable t)
         {
             if (!explicitTsac)
             {
                 logDiagnostic("%s rethrown from implicit rollback: %s",
-                    ex.classinfo.name, ex.msg);
-                throw ex;
+                    t.classinfo.name, t.msg);
+                throw t;
             }
-            logDiagnostic("%s caught, explicit rollback: %s", ex.classinfo.name, ex.msg);
+            logDiagnostic("%s caught, explicit rollback: %s", t.classinfo.name, t.msg);
             if (m_con.isOpen)
             {
                 m_con.putQueryMessage("ROLLBACK");
@@ -345,10 +345,10 @@ final class PgConnection
             else
             {
                 m_state = ConnectionState.closed;
-                throw new PsqlSocketException("Unable to rollback using closed connection");
+                throw new PsqlSocketException("Unable to rollback using closed connection", t);
             }
             m_resultQueue.pushBack(null);   // rollback result is uninteresting
-            throw ex;
+            throw t;
         }
     }
 
