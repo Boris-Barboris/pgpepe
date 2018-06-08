@@ -3,7 +3,7 @@ module pgpepe.conv;
 import std.algorithm: max;
 import std.conv;
 import std.exception: enforce;
-import std.traits: OriginalType;
+import std.traits: OriginalType, TemplateArgsOf;
 import std.range: enumerate, isOutputRange;
 
 import dpeq;
@@ -204,6 +204,17 @@ struct RowMapper(StrT)
                     NativeT temp;
                     DefaultSerializer!fs.deserialize(row, fcode, len, &temp);
                     __traits(getMember, dest, fmeta.name) = temp.to!(fmeta.type);
+                }
+                else static if (nullable && is(typeof(fmeta.type.init.get) == enum))
+                {
+                    // nullable enum case
+                    alias EnumT = TemplateArgsOf!(fmeta.type);
+                    NativeT temp;
+                    DefaultSerializer!fs.deserialize(row, fcode, len, &temp);
+                    fmeta.type res;
+                    if (!temp.isNull)
+                        res = temp.get.to!EnumT;
+                    __traits(getMember, dest, fmeta.name) = res;
                 }
                 else
                 {
