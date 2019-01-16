@@ -91,11 +91,31 @@ void asStructs(StrT, ORange)(const QueryResult r, ref ORange or, bool strict = t
 
 T asType(T)(const QueryResult r, immutable(FormatCode)[] resFcodes = null)
 {
-    static struct ResS
+    enforce!RIE(r.blocks.length == 1, "Expected one row block");
+    const RowBlock b = r.blocks[0];
+    enforce!RIE(b.state == RowBlockState.complete, "Row block not in complete state");
+    enforce!UnexpectedRowCount(b.dataRows.length == 1, "Expected one row");
+    T res;
+    auto mapper = ValueMapper!T(b.rowDesc, resFcodes);
+    mapper.map(b.dataRows[0], res);
+    return res;
+}
+
+void asTypes(T, ORange)(const QueryResult r, ref ORange or, immutable(FormatCode)[] resFcodes = null)
+    if (isOutputRange!(ORange, T))
+{
+    enforce!RIE(r.blocks.length == 1, "Expected one row block");
+    const RowBlock b = r.blocks[0];
+    enforce!RIE(b.state != RowBlockState.invalid, "Row block in invalid state");
+    if (b.dataRows.length == 0)
+        return;
+    auto mapper = ValueMapper!T(b.rowDesc, resFcodes);
+    foreach (dr; b.dataRows)
     {
-        T val;
+        T tmp;
+        mapper.map(dr, tmp);
+        or.put(tmp);
     }
-    return asStruct!ResS(r, false, resFcodes).val;
 }
 
 /// Returns array of preferrable format codes for the result wich perfectly
@@ -142,7 +162,66 @@ template fcodeForField(StrT, string f)
     enum FormatCode fcodeForField = DefaultSerializer!fs.formatCode;
 }
 
+/// maps first column of result row to single value
+struct ValueMapper(T)
+{
+    private immutable(FormatCode)[] m_resFcodes;
 
+    this(const RowDescription rd, immutable(FormatCode)[] resFcodes = null) @trusted
+    {
+        if (!rd.isSet)
+        {
+            m_resFcodes = resFcodes;
+            return;
+        }
+        auto tres = new FormatCode[rd.fieldCount];
+        foreach (i, col; rd[].enumerate())
+        {
+            tres[i] = col.formatCode;
+        }
+        m_resFcodes = cast(immutable) tres;
+    }
+
+    void map(immutable(ubyte)[] row, ref T dest) @trusted
+    {
+        short colCount = deserializeNumber!short(row[0 .. 2]);
+        row = row[2 .. $];
+        enforce!RIE(colCount > 0, "no columns in result");
+        enum bool nullable = isNullable!T;
+        int len = deserializeNumber(row[0 .. 4]);
+        row = row[4..$];
+        FormatCode fcode = m_resFcodes.length > 0 ? m_resFcodes[0] : FormatCode.Text;
+        // we assume OID from the target type
+        enum OID assumedOid = oidForType!T;
+        enum FieldSpec fs = FieldSpec(assumedOid, nullable);
+        alias NativeT = DefaultSerializer!fs.type;
+        static if (is(T == enum))
+        {
+            static assert (is(OriginalType!(T) == NativeT));
+            NativeT temp;
+            DefaultSerializer!fs.deserialize(row, fcode, len, &temp);
+            dest = temp.to!(T);
+        }
+        else static if (nullable && is(typeof(T.init.get) == enum))
+        {
+            // nullable enum case
+            alias EnumT = TemplateArgsOf!(T);
+            NativeT temp;
+            DefaultSerializer!fs.deserialize(row, fcode, len, &temp);
+            T res;
+            if (!temp.isNull)
+                res = temp.get.to!EnumT;
+            dest = res;
+        }
+        else
+        {
+            static assert (is(T == NativeT));
+            DefaultSerializer!fs.deserialize(row, fcode, len, &dest);
+        }
+    }
+}
+
+/// maps result row to structure fields
 struct RowMapper(StrT)
     if (is(StrT == struct))
 {
@@ -160,7 +239,7 @@ struct RowMapper(StrT)
         {
             tres[i] = col.formatCode;
         }
-        m_resFcodes = cast(immutable(FormatCode)[]) tres;
+        m_resFcodes = cast(immutable) tres;
     }
 
     void map(immutable(ubyte)[] row, ref StrT dest, bool strict) @trusted
