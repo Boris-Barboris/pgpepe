@@ -60,6 +60,7 @@ final class PgConnection
             {
                 m_con = connectTCP(host, port, null, 0, timeout);
                 m_con.keepAlive = true;
+                m_con.readTimeout = seconds(5);
             }
             catch (Exception ex)
             {
