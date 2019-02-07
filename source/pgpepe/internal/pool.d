@@ -46,11 +46,13 @@ final class PgConnectionPool
         if (fast)
         {
             m_fastSema.lock();
+            scope(failure) m_fastSema.unlock();
             return chooseFromArray(m_fastCons, m_fastPoolSize, 9);
         }
         else
         {
             m_slowSema.lock();
+            scope(failure) m_slowSema.unlock();
             return chooseFromArray(m_slowCons, m_slowPoolSize, 2);
         }
     }
