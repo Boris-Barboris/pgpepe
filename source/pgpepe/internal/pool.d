@@ -45,12 +45,16 @@ final class PgConnectionPool
     {
         if (fast)
         {
+            if (m_fastSema.available == 0)
+                logDebug("Blocking on m_fastSema of a connection pool");
             m_fastSema.lock();
             scope(failure) m_fastSema.unlock();
             return chooseFromArray(m_fastCons, m_fastPoolSize, 9);
         }
         else
         {
+            if (m_slowSema.available == 0)
+                logDebug("Blocking on m_slowSema of a connection pool");
             m_slowSema.lock();
             scope(failure) m_slowSema.unlock();
             return chooseFromArray(m_slowCons, m_slowPoolSize, 2);

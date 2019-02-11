@@ -139,14 +139,14 @@ final class PgConnection
 
     package void close() nothrow
     {
-        logInfo("Closing connection to %s", m_settings.backendParam.host);
         if (m_state != ConnectionState.closed)
         {
-            // notify reader task that it's time to die
             m_state = ConnectionState.closed;
+            logInfo("Closing connection to %s", m_settings.backendParam.host);
+            m_con.terminate(false);
+            // notify the reader task that it's time to die
             m_resultQueue.pushBack(null);
         }
-        m_con.terminate();
     }
 
     private void establishConnection()
@@ -155,11 +155,11 @@ final class PgConnection
         m_state = ConnectionState.connecting;
         scope(failure)
         {
-            logError("Failed to construct connection to %s", m_settings.backendParam.host);
+            logError("Failed to establish connection to %s", m_settings.backendParam.host);
             m_state = ConnectionState.closed;
             if (m_con)
             {
-                m_con.terminate();
+                m_con.terminate(false);
                 m_con = null;
             }
         }
@@ -167,9 +167,9 @@ final class PgConnection
         m_con = new DpeqConT(m_settings.backendParam, m_settings.connectionTimeout);
         logInfo("Connected to %s", m_settings.backendParam.host);
         initializeConnection();
+        m_lastRelease = MonoTime.currTime();
         // start reader task
         m_readerTask = runTask(&readerTaskProc);
-        m_lastRelease = MonoTime.currTime();
         // we are ready to accept transactions
         m_state = ConnectionState.active;
     }
@@ -197,7 +197,7 @@ final class PgConnection
         // perform all initialization queries
         foreach (sql; m_settings.conInitQueries)
         {
-            logDebugV("running conInitQuery: %s", sql);
+            logDebug("running conInitQuery: %s", sql);
             m_con.putQueryMessage(sql);
             m_con.flush();
             m_con.pollMessages(null);
@@ -228,27 +228,30 @@ final class PgConnection
             }
             catch (PsqlSocketException ex)
             {
-                logInfo("Connection to %s is assumed closed",
+                logInfo("Connection to %s assumed to be closed",
                     m_settings.backendParam.host);
-                m_state = ConnectionState.closed;
-                m_con.terminate();
+                if (m_state != ConnectionState.closed)
+                {
+                    m_state = ConnectionState.closed;
+                    m_con.terminate(false);
+                }
                 if (future !is null)
                     future.complete(ex);
-                // windup remaining waiters
+                // windup remaining waiters.
                 while (m_resultQueue.length > 0)
                 {
                     future = m_resultQueue.popFront();
                     if (future !is null)
                         future.complete(ex);
                 }
-                // terminate readerTask
+                // Absence of new waiters after this point is guaranteed by close() and terminate().
                 return;
             }
             catch (Exception ex)
             {
                 if (future !is null)
                 {
-                    logDebugV("%s caught in readerTask: %s", ex.classinfo.name, ex.msg);
+                    logDebug("%s caught in readerTask: %s", ex.classinfo.name, ex.msg);
                     future.complete(ex);
                 }
                 else
@@ -265,7 +268,7 @@ final class PgConnection
     // returns true if explicit BEGIN was sent to backend
     private bool beginTsac(in TsacConfig tc, bool allowImplicit)
     {
-        logDebugV("begin transaction");
+        logDebug("begin transaction");
         if (tc.isolation == m_settings.defaultIsolation &&
             tc.readonly == m_settings.readonly && !tc.deferrable)
         {
@@ -297,6 +300,8 @@ final class PgConnection
         assert(tc.readonly || !m_settings.readonly,
             "write transaction on read-only connection");
         m_tsacsBlocked++;
+        if (m_tsacsBlocked > 1)
+            logDebug("Blocking on connection m_tsacMutex behind %d contenders", m_tsacsBlocked - 1);
         m_tsacMutex.lock();
         scope (exit)
         {
@@ -306,16 +311,17 @@ final class PgConnection
         }
         if (m_state != ConnectionState.active)
             throw new PsqlSocketException("connection is closed");  // FIXME
-        bool explicitTsac = beginTsac(tc, allowImplicit);
+        bool explicitTsac;
         try
         {
+            explicitTsac = beginTsac(tc, allowImplicit);
             tsacBody(this);
             if (!explicitTsac)
             {
-                logDebugV("implicit commit");
+                logDebug("implicit commit");
                 return g_successFuture;
             }
-            logDebugV("explicit commit");
+            logDebug("explicit commit");
             m_con.putQueryMessage("COMMIT");
             m_con.flush();
             PgFuture commitFuture = new PgFuture();
@@ -325,8 +331,7 @@ final class PgConnection
         catch (PsqlSocketException ex)
         {
             logError("socket error in transaction: %s", ex.msg);
-            m_state = ConnectionState.closed;
-            m_resultQueue.pushBack(null);
+            close();
             throw ex;
         }
         catch (Throwable t)
@@ -337,18 +342,27 @@ final class PgConnection
                     t.classinfo.name, t.msg);
                 throw t;
             }
-            logDiagnostic("%s caught, explicit rollback: %s", t.classinfo.name, t.msg);
             if (m_con.isOpen)
             {
-                m_con.putQueryMessage("ROLLBACK");
-                m_con.flush();
+                logDiagnostic("%s caught, explicit rollback: %s", t.classinfo.name, t.msg);
+                try
+                {
+                    m_con.putQueryMessage("ROLLBACK");
+                    m_con.flush();
+                    m_resultQueue.pushBack(null);
+                }
+                catch (Exception ex)
+                {
+                    logDiagnostic("Unexpected error %s during explicit rollback: %s. Closing connection.",
+                        ex.classinfo.name, ex.msg);
+                    close();
+                }
             }
             else
             {
-                m_state = ConnectionState.closed;
+                close();
                 throw new PsqlSocketException("Unable to rollback using closed connection", t);
             }
-            m_resultQueue.pushBack(null);   // rollback result is uninteresting
             throw t;
         }
     }
@@ -374,7 +388,7 @@ final class PgConnection
             string* psName = p.hash in m_psCache;
             if (psName is null)
             {
-                logDebugV("Prepared statement cache miss");
+                logDebug("Prepared statement cache miss");
                 string newName = m_con.getNewPreparedName();
                 p.parse(m_con, newName);
                 // we need to wait for parse, because it may fail
@@ -388,7 +402,7 @@ final class PgConnection
             }
             else
             {
-                logDebugV("Prepared statement cache hit");
+                logDebug("Prepared statement cache hit");
                 p.bind(m_con, *psName, "");
             }
         }
