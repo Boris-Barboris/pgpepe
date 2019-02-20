@@ -143,7 +143,8 @@ final class PgConnection
         {
             m_state = ConnectionState.closed;
             logInfo("Closing connection to %s", m_settings.backendParam.host);
-            m_con.terminate(false);
+            if (m_con)
+                m_con.terminate(false);
             // notify the reader task that it's time to die
             m_resultQueue.pushBack(null);
         }
