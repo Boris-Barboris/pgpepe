@@ -142,9 +142,11 @@ final class PgConnection
         if (m_state != ConnectionState.closed)
         {
             m_state = ConnectionState.closed;
-            logInfo("Closing connection to %s", m_settings.backendParam.host);
             if (m_con)
+            {
+                logInfo("Closing connection to %s", m_settings.backendParam.host);
                 m_con.terminate(false);
+            }
             // notify the reader task that it's time to die
             m_resultQueue.pushBack(null);
         }
@@ -219,13 +221,17 @@ final class PgConnection
     {
         while (true)
         {
-            PgFuture future = m_resultQueue.popFront(); // blocks
+            PgFuture future = m_resultQueue.popFront(); // blocks fiber
             try
             {
                 if (future !is null)
                     future.complete(getQueryResults(m_con));
                 else
+                {
+                    if (m_state == ConnectionState.closed)
+                        return;
                     m_con.pollMessages(null);
+                }
             }
             catch (PsqlSocketException ex)
             {
