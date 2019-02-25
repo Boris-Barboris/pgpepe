@@ -1,6 +1,6 @@
 module pgpepe.connection;
 
-import core.time: Duration, MonoTime;
+import core.time: Duration, MonoTimeImpl, ClockType;
 
 import vibe.core.net: TCPConnection, connectTCP;
 import vibe.core.core: runTask;
@@ -104,21 +104,22 @@ final class PgConnection
     }
 
     package alias DpeqConT = PSQLConnection!(VibeCoreSocket, nop_logger, logError);
+    private alias CoarseTime = MonoTimeImpl!(ClockType.coarse);
 
     private DpeqConT m_con;
-    private MonoTime m_lastRelease;
+    private CoarseTime m_lastRelease;
     private ConnectionState m_state;
 
     @property ConnectionState state() const { return m_state; }
 
     package void markReleaseTime()
     {
-        m_lastRelease = MonoTime.currTime();
+        m_lastRelease = CoarseTime.currTime();
     }
 
     package @property Duration timeSinceLastRelease() const
     {
-        return MonoTime.currTime() - m_lastRelease;
+        return CoarseTime.currTime() - m_lastRelease;
     }
 
     package this(immutable ConnectionSettings settings)
@@ -170,7 +171,7 @@ final class PgConnection
         m_con = new DpeqConT(m_settings.backendParam, m_settings.connectionTimeout);
         logInfo("Connected to %s", m_settings.backendParam.host);
         initializeConnection();
-        m_lastRelease = MonoTime.currTime();
+        m_lastRelease = CoarseTime.currTime();
         // start reader task
         m_readerTask = runTask(&readerTaskProc);
         // we are ready to accept transactions
