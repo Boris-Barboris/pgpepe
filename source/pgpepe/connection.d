@@ -23,7 +23,8 @@ import pgpepe.internal.taskqueue;
 
 struct ConnectionSettings
 {
-    BackendParams backendParam;
+    ConnectParameters conParams;
+    SSLPolicy sslPolicy;
     Duration connectionTimeout;
     string[] conInitQueries;
     IsolationLevel defaultIsolation;

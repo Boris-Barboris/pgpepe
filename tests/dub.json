@@ -3,7 +3,7 @@
   "description": "Tests for pgpepe",
   "license": "MIT",
   "targetType": "executable",
-  "copyright": "Copyright © 2017-2018 Boris-Barboris",
+  "copyright": "Copyright © 2017-2019 Boris-Barboris",
   "homepage": "https://github.com/Boris-Barboris/pgpepe/",
   "authors": ["Boris-Barboris"],
   "dependencies":

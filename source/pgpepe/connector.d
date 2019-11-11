@@ -8,8 +8,9 @@ import vibe.core.log;
 import vibe.core.core: sleep;
 import vibe.core.sync: LocalTaskSemaphore;
 
-public import dpeq.connection: BackendParams;
-public import dpeq.result: QueryResult;
+
+public import dpeq.transport: ConnectParameters;
+public import dpeq.connection: SSLPolicy;
 
 import pgpepe.constants;
 import pgpepe.connection;
@@ -25,11 +26,13 @@ import pgpepe.internal.pool;
 struct ConnectorSettings
 {
     /// Backends that are accepting writes. Usually it's one master server.
-    /// Non-readonly transactions will be scheduled on thes backends.
-    BackendParams[] rwBackends;
+    /// Non-readonly transactions will be scheduled on these backends.
+    ConnectParameters[] rwBackends;
     /// Backends that are accepting only reads. Slave replication nodes.
     /// Readonly transactions will be scheduled on these backends.
-    BackendParams[] roBackends;
+    ConnectParameters[] roBackends;
+    /// SSL policy, applied to all connections.
+    SSLPolicy sslPolicy;
     /// Each backend will be serviced by this many connections that are only
     /// issuing fast transactions.
     uint fastPoolSize = 4;
