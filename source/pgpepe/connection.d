@@ -34,9 +34,9 @@ struct ConnectionSettings
     SSLPolicy sslPolicy;
     string user;
     string databaseName;
-    /// Authentication plugin
+    /// Authentication plugin, password or some other
     IPSQLAuthenticator authenticator;
-    /// TCP-layer socket timeouts
+    /// TCP socket timeouts
     Duration connectTimeout;
     Duration readTimeout;
     Duration writeTimeout;

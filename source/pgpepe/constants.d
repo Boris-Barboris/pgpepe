@@ -2,37 +2,34 @@ module pgpepe.constants;
 
 import std.container.rbtree;
 
-public import dpeq.constants: OID, PgType;
-
 
 enum IsolationLevel: byte
 {
-    READ_COMMITTED = 0,
+    READ_COMMITTED,
     REPEATABLE_READ,
     SERIALIZABLE
 }
 
-immutable IsolationLevel READ_COMMITTED = IsolationLevel.READ_COMMITTED;
-immutable IsolationLevel REPEATABLE_READ = IsolationLevel.REPEATABLE_READ;
-immutable IsolationLevel SERIALIZABLE = IsolationLevel.SERIALIZABLE;
+enum IsolationLevel READ_COMMITTED = IsolationLevel.READ_COMMITTED;
+enum IsolationLevel REPEATABLE_READ = IsolationLevel.REPEATABLE_READ;
+enum IsolationLevel SERIALIZABLE = IsolationLevel.SERIALIZABLE;
 
 
-/// All possible types of transactions are described using this structure.
+/// Transaction attributes that are respected by pgpepe.
 struct TsacConfig
 {
     IsolationLevel isolation = READ_COMMITTED;
     bool readonly = false;
-    /**  Transaction should be marked as fast if it:
+    /** Fast transactions are routed to separate connection set in order to minimize latency.
+        Transaction should be marked as fast if it:
         1. Does not require round-trips, e.g. subsequent queries do not depend
-            on the result of previous ones and are issued in batched manner.
+           on the result of previous ones and are issued in batched manner.
         2. Time, required to process this transaction by postgres is around
-            millisecond or less.  */
+           millisecond or less.  */
     bool fast = true;
-    /// useful for serializable readonly, consult Psql docks
+    /// The DEFERRABLE transaction property has no effect unless the transaction is also SERIALIZABLE and READ ONLY. When all three of these properties are selected for a transaction, the transaction may block when first acquiring its snapshot, after which it is able to run without the normal overhead of a SERIALIZABLE transaction and without any risk of contributing to or being canceled by a serialization failure. This mode is well suited for long-running reports or backups.
     bool deferrable = false;
 }
-
-static assert (TsacConfig.sizeof == 4);
 
 immutable TsacConfig TSAC_DEFAULT = TsacConfig(READ_COMMITTED, false, false, false);
 immutable TsacConfig TSAC_FDEFAULT = TsacConfig(READ_COMMITTED, false, true, false);
@@ -45,9 +42,7 @@ immutable TsacConfig TSAC_SDEFER = TsacConfig(SERIALIZABLE, true, false, true);
 
 
 
-
-
-// Stuff, used by pgpepe itself
+// Internal pgpepe data
 
 @trusted:
 
@@ -68,7 +63,7 @@ private
         return tc.isolation * 100 + int(tc.readonly) * 10 + int(tc.deferrable);
     }
 
-    string deferrableStr(in TsacConfig tc)
+    string deferrableStr(TsacConfig tc)
     {
         if (tc.deferrable)
             return "DEFERRABLE";
@@ -76,7 +71,7 @@ private
             return "NOT DEFERRABLE";
     }
 
-    string readonlyStr(in TsacConfig tc)
+    string readonlyStr(TsacConfig tc)
     {
         if (tc.readonly)
             return "READ ONLY " ~ deferrableStr(tc);
@@ -84,7 +79,7 @@ private
             return "READ WRITE " ~ deferrableStr(tc);
     }
 
-    string isolationLvlStr(in TsacConfig tc)
+    string isolationLvlStr(TsacConfig tc)
     {
         final switch (tc.isolation)
         {
