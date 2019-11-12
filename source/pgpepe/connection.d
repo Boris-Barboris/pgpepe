@@ -5,11 +5,14 @@ import core.time: Duration, MonoTimeImpl, ClockType;
 import vibe.core.net: TCPConnection, connectTCP;
 import vibe.core.core: runTask;
 import vibe.core.task: Task;
+import vibe.core.stream;
 import vibe.core.log;
-import vibe.core.stream: IOMode;
 import vibe.core.sync: TaskMutex;
 
 import dpeq;
+public import dpeq.authentication;
+public import dpeq.transport;
+public import dpeq.connection: SSLPolicy;
 
 import pgpepe.constants;
 import pgpepe.prepared;
@@ -23,12 +26,27 @@ import pgpepe.internal.taskqueue;
 
 struct ConnectionSettings
 {
-    ConnectParameters conParams;
+    /// Hostname or IP address of backend.
+    string host;
+    /// TCP port number.
+    ushort port;
+    /// SSL policy for dpeq connection.
     SSLPolicy sslPolicy;
-    Duration connectionTimeout;
-    string[] conInitQueries;
+    string user;
+    string databaseName;
+    /// Authentication plugin
+    IPSQLAuthenticator authenticator;
+    /// TCP-layer socket timeouts
+    Duration connectTimeout;
+    Duration readTimeout;
+    Duration writeTimeout;
+    /// Default isolation level to set for the newly created connection.
     IsolationLevel defaultIsolation;
+    /// Array of simple string SQL queries to in the end of connection initialization.
+    string[] conInitQueries;
+    /// If the connection is to be set up as readonly.
     bool readonly;
+    /// Query result capacity.
     uint queueCapacity;
 }
 
