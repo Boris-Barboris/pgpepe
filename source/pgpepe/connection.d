@@ -1,6 +1,6 @@
 module pgpepe.connection;
 
-import core.time: Duration, MonoTimeImpl, ClockType;
+import core.time: Duration, MonoTimeImpl, ClockType, seconds;
 
 import vibe.core.net: TCPConnection, connectTCP;
 import vibe.core.core: runTask;
@@ -8,10 +8,10 @@ import vibe.core.task: Task;
 import vibe.core.stream;
 import vibe.core.log;
 import vibe.core.sync: TaskMutex;
+import vibe.stream.tls;
 
 import dpeq;
 public import dpeq.authentication;
-public import dpeq.transport;
 public import dpeq.connection: SSLPolicy;
 
 import pgpepe.constants;
@@ -30,32 +30,51 @@ struct ConnectionSettings
     string host;
     /// TCP port number.
     ushort port;
-    /// SSL policy for dpeq connection.
-    SSLPolicy sslPolicy;
+    /// User to use to connect to db
     string user;
+    /// Database name
     string databaseName;
-    /// Authentication plugin, password or some other
+    /// Authentication plugin. For example, dpeq.authentication.PasswordAuthenticator.
     IPSQLAuthenticator authenticator;
-    /// TCP socket timeouts
-    Duration connectTimeout;
-    Duration readTimeout;
-    Duration writeTimeout;
-    /// Default isolation level to set for the newly created connection.
-    IsolationLevel defaultIsolation;
-    /// Array of simple string SQL queries to in the end of connection initialization.
+    /// Default timeouts that are applied to socket or events during connection initialization.
+    TimeoutConfig timeouts;
+    /// TLS configuration.
+    TLSConfig tls;
+    /// Default transaction type to set after authentication.
+    TsacConfig defaultTsacConfig;
+    /// Array of simple SQL queries to run in the end of connection initialization,
+    /// but after 'defaultTsacConfig' application.
     string[] conInitQueries;
-    /// If the connection is to be set up as readonly.
-    bool readonly;
-    /// Query result capacity.
+    /// Query queue capacity. Equals to the maximum number of outgoing requests, pushed to the wire.
     uint queueCapacity;
 }
 
-enum ConnectionState: byte
+
+/// TCP socket operation timeouts.
+struct TimeoutConfig
 {
-    uninitialized,
-    connecting,
-    active,
-    closed
+    Duration connectTimeout = seconds(10);
+    Duration readTimeout = seconds(10);
+    Duration writeTimeout = seconds(10);
+}
+
+
+/// SSL policy and config
+struct TLSConfig
+{
+    /// SSL policy for dpeq connection.
+    SSLPolicy policy = SSLPolicy.PREFER;
+    /// Certificate validation mode. Alter to TLSPeerValidationMode.none for the 'insecure' type.
+    TLSPeerValidationMode validationMode = TLSPeerValidationMode.trustedCert;
+}
+
+
+enum PgConnectionState: byte
+{
+    NEW,
+    CONNECTING,
+    ACTIVE,
+    CLOSED
 }
 
 
@@ -69,6 +88,8 @@ final class PgConnection
 {
     private immutable ConnectionSettings m_settings;
 
+
+    /// Vibe-d transport implementation that supports SSL and vibe-core eventloop.
     private static final class VibeCoreSocket
     {
         private TCPConnection m_con;
@@ -122,14 +143,14 @@ final class PgConnection
         }
     }
 
-    package alias DpeqConT = PSQLConnection!(VibeCoreSocket, nop_logger, logError);
+    package alias DpeqConT = PSQLConnection;
     private alias CoarseTime = MonoTimeImpl!(ClockType.coarse);
 
     private DpeqConT m_con;
     private CoarseTime m_lastRelease;
-    private ConnectionState m_state;
+    private PgConnectionState m_state;
 
-    @property ConnectionState state() const { return m_state; }
+    @property PgConnectionState state() const { return m_state; }
 
     package void markReleaseTime()
     {
@@ -150,18 +171,18 @@ final class PgConnection
 
     package void open()
     {
-        assert(m_state == ConnectionState.uninitialized);
+        assert(m_state == PgConnectionState.NEW);
         m_tsacMutex.lock();
         scope (exit) m_tsacMutex.unlock();
-        if (m_state == ConnectionState.uninitialized)
+        if (m_state == PgConnectionState.NEW)
             establishConnection();
     }
 
     package void close() nothrow
     {
-        if (m_state != ConnectionState.closed)
+        if (m_state != PgConnectionState.CLOSED)
         {
-            m_state = ConnectionState.closed;
+            m_state = PgConnectionState.CLOSED;
             if (m_con)
             {
                 logInfo("Closing connection to %s", m_settings.backendParam.host);
@@ -174,19 +195,19 @@ final class PgConnection
 
     private void establishConnection()
     {
-        assert(m_state == ConnectionState.uninitialized);
-        m_state = ConnectionState.connecting;
+        assert(m_state == PgConnectionState.NEW);
+        m_state = PgConnectionState.CONNECTING;
         scope(failure)
         {
             logError("Failed to establish connection to %s", m_settings.backendParam.host);
-            m_state = ConnectionState.closed;
+            m_state = PgConnectionState.CLOSED;
             if (m_con)
             {
                 m_con.terminate(false);
                 m_con = null;
             }
         }
-        logDebug("Connecting to %s...", m_settings.backendParam.host);
+        logDebug("CONNECTING to %s...", m_settings.backendParam.host);
         m_con = new DpeqConT(m_settings.backendParam, m_settings.connectionTimeout);
         logInfo("Connected to %s", m_settings.backendParam.host);
         initializeConnection();
@@ -194,7 +215,7 @@ final class PgConnection
         // start reader task
         m_readerTask = runTask(&readerTaskProc);
         // we are ready to accept transactions
-        m_state = ConnectionState.active;
+        m_state = PgConnectionState.ACTIVE;
     }
 
     private void initializeConnection()
@@ -248,7 +269,7 @@ final class PgConnection
                     future.complete(getQueryResults(m_con));
                 else
                 {
-                    if (m_state == ConnectionState.closed)
+                    if (m_state == PgConnectionState.CLOSED)
                         return;
                     m_con.pollMessages(null);
                 }
@@ -257,9 +278,9 @@ final class PgConnection
             {
                 logInfo("Connection to %s assumed to be closed",
                     m_settings.backendParam.host);
-                if (m_state != ConnectionState.closed)
+                if (m_state != PgConnectionState.CLOSED)
                 {
-                    m_state = ConnectionState.closed;
+                    m_state = PgConnectionState.CLOSED;
                     m_con.terminate(false);
                 }
                 if (future !is null)
@@ -336,7 +357,7 @@ final class PgConnection
             assert(m_tsacsBlocked >= 0);
             m_tsacMutex.unlock();
         }
-        if (m_state != ConnectionState.active)
+        if (m_state != PgConnectionState.ACTIVE)
             throw new PsqlSocketException("connection is closed");  // FIXME
         bool explicitTsac;
         try

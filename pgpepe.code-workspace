@@ -4,13 +4,13 @@
 			"path": "."
 		},
 		{
-			"path": "..\\dpeq"
+			"path": "../dpeq"
 		}
 	],
 	"settings": {
 		"d.projectImportPaths": [
-			".\\source",
-			"..\\dpeq\\source",
+			"./source",
+			"../dpeq/source",
 			"C:\\Users\\John Bull\\AppData\\Roaming\\dub\\packages\\vibe-core-1.7.0\\vibe-core\\source",
 			"C:\\Users\\John Bull\\AppData\\Roaming\\dub\\packages\\eventcore-0.8.48\\eventcore\\source",
 			"C:\\Users\\John Bull\\AppData\\Roaming\\dub\\packages\\vibe-d-0.8.6\\vibe-d\\tls",
