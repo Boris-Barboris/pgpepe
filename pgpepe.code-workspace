@@ -16,7 +16,11 @@
 			"C:\\Users\\John Bull\\AppData\\Roaming\\dub\\packages\\vibe-d-0.8.6\\vibe-d\\tls",
 			"C:\\Users\\John Bull\\AppData\\Roaming\\dub\\packages\\vibe-d-0.8.6\\vibe-d\\stream",
 			"C:\\Users\\John Bull\\AppData\\Roaming\\dub\\packages\\vibe-d-0.8.6\\vibe-d\\inet",
-			"C:\\Users\\John Bull\\AppData\\Roaming\\dub\\packages\\vibe-d-0.8.6\\vibe-d\\utils"
+			"C:\\Users\\John Bull\\AppData\\Roaming\\dub\\packages\\vibe-d-0.8.6\\vibe-d\\utils",
+			"/home/boris/.dub/packages/vibe-core-1.7.0/vibe-core/source",
+			"/home/boris/.dub/packages/vibe-d-0.8.5/vibe-d/stream/",
+			"/home/boris/.dub/packages/vibe-d-0.8.5/vibe-d/tls/",
+			"/home/boris/.dub/packages/vibe-d-0.8.5/vibe-d/inet/"
 		]
 	}
 }

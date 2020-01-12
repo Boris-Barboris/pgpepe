@@ -24,71 +24,21 @@ struct TsacConfig
 
 
 /// shortcut for read committed read-write
-immutable TsacConfig TC_DEFAULT = TsacConfig(IsolationLevel.READ_COMMITTED, false, false);
+enum TsacConfig TC_READCOMMITTED = TsacConfig(IsolationLevel.READ_COMMITTED, false, false);
 /// shortcut for repeatable read read-write
-immutable TsacConfig TC_REPEATABLEREAD = TsacConfig(IsolationLevel.REPEATABLE_READ, false, false);
+enum TsacConfig TC_REPEATABLEREAD = TsacConfig(IsolationLevel.REPEATABLE_READ, false, false);
 /// shortcut for serializable read-write
-immutable TsacConfig TC_SERIAL = TsacConfig(IsolationLevel.SERIALIZABLE, false, false);
+enum TsacConfig TC_SERIAL = TsacConfig(IsolationLevel.SERIALIZABLE, false, false);
 
 
-@trusted:
-
-
-// Following code prepares static mapping from all possible TsacConfig's to SQL string.
-private
+enum TransactionCommitState
 {
-    __gshared string[TsacConfig] g_tsacStrCache;
-
-    string deferrableStr(TsacConfig tc)
-    {
-        if (tc.deferrable)
-            return "DEFERRABLE;";
-        else
-            return "NOT DEFERRABLE;";
-    }
-
-    string readonlyStr(TsacConfig tc)
-    {
-        if (tc.readonly)
-            return "READ ONLY " ~ deferrableStr(tc);
-        else
-            return "READ WRITE " ~ deferrableStr(tc);
-    }
-
-    string isolationLvlStr(TsacConfig tc)
-    {
-        final switch (tc.isolation)
-        {
-            case (IsolationLevel.READ_COMMITTED):
-                return "ISOLATION LEVEL READ COMMITTED " ~ readonlyStr(tc);
-            case (IsolationLevel.REPEATABLE_READ):
-                return "ISOLATION LEVEL REPEATABLE READ " ~ readonlyStr(tc);
-            case (IsolationLevel.SERIALIZABLE):
-                return "ISOLATION LEVEL SERIALIZABLE " ~ readonlyStr(tc);
-        }
-    }
-}
-
-shared static this()
-{
-    // import std.stdio
-
-    for (byte i = IsolationLevel.min; i <= IsolationLevel.max; i++)
-        for (byte ro = 0; ro < 2; ro++)
-            for (byte df = 0; df < 2; df++)
-            {
-                TsacConfig conf = TsacConfig(
-                    cast(IsolationLevel) i, cast(bool) ro, cast(bool) df);
-                // writeln("cell: ", cell);
-                g_tsacStrCache[conf] = isolationLvlStr(conf);
-            }
-}
-
-
-@safe:
-
-/// Get BEGIN sql string for transaction config
-string beginTsacStr(TsacConfig tc)
-{
-    return g_tsacStrCache[tc];
+    /// Commit was issued and transaction may or may not have been
+    /// committed, the state is unknown.
+    UNKNOWN,
+    /// Commit was not issued or was rejected by backend, or the error during
+    /// transaction initiated rollback.
+    ROLLED_BACK,
+    /// Commit succeeded.
+    COMMITTED
 }

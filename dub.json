@@ -3,13 +3,17 @@
   "description": "PostgreSQL connector/pooler for vibe-d",
   "license": "MIT",
   "targetType": "library",
-  "copyright": "Copyright © 2017-2019 Boris-Barboris",
+  "copyright": "Copyright © 2017-2020 Boris-Barboris",
   "homepage": "https://github.com/Boris-Barboris/pgpepe",
   "authors": ["Boris-Barboris"],
   "dependencies": {
     "painlesstraits": ">=0.3",
     "vibe-core": ">=1.3",
     "vibe-d:tls": ">=0.8",
+    "taggedalgebraic": ">=0.10.0",
     "dpeq": { "path": "../dpeq" }
+  },
+  "subConfigurations": {
+    "vibe-d:core": "vibe-core"
   }
 }

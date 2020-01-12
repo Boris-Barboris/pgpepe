@@ -1,14 +1,25 @@
 module pgpepe.future;
 
 public import dpeq.exceptions;
-public import dpeq.result: QueryResult;
+import taggedalgebraic;
 import vibe.core.log;
 import vibe.core.sync: LocalManualEvent;
 
 import pgpepe.internal.manualeventpool;
+import pgpepe.result;
 
 
 @safe:
+
+
+union PgFutureResultUnion
+{
+    PreparedResult prepared;
+    SimpleQueryResult simpleQuery;
+}
+
+
+alias PgFutureResult = TaggedUnion!PgFutureResultUnion;
 
 
 /// Future wich will eventually contain query result or the exception.
@@ -17,7 +28,7 @@ final class PgFuture
     private bool m_completed = false;
     @property bool completed() const nothrow { return m_completed; }
 
-    private QueryResult m_result;
+    private PgFutureResult m_result;
     private Exception m_err;
     private LocalManualEvent* m_event;
 
@@ -35,6 +46,7 @@ final class PgFuture
         await();
         if (m_err !is null)
         {
+            // regenerate stack trace for typical exceptions
             if (typeid(m_err) is typeid(PsqlErrorResponseException))
                 throw new PsqlErrorResponseException(
                     (cast(PsqlErrorResponseException) m_err).notice, m_err);
@@ -46,13 +58,13 @@ final class PgFuture
 
     /// Blocks fiber until completed and returns query result, or throws if
     /// future was completed with an error.
-    @property QueryResult result()
+    @property PgFutureResult result()
     {
         throwIfErr();
         return m_result;
     }
 
-    /// Blocks fiber until completed
+    /// Blocks fiber until completed.
     void await()
     {
         if (m_completed)
@@ -67,7 +79,7 @@ final class PgFuture
 
     /// Succesfully complete the future, assigning result value and signaling
     /// the waiter fiber (if present).
-    void complete(QueryResult res) nothrow
+    void complete(PgFutureResult res) nothrow
     {
         assert(!m_completed, "future already completed");
         m_result = res;
