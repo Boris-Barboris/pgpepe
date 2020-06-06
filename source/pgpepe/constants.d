@@ -16,7 +16,7 @@ struct TsacConfig
 {
     /// Requested isolation level.
     IsolationLevel isolation = IsolationLevel.READ_COMMITTED;
-    /// READ ONLY clause of BEGIN.
+    /// READ ONLY clause in BEGIN.
     bool readonly = false;
     /// The DEFERRABLE transaction property has no effect unless the transaction is also SERIALIZABLE and READ ONLY. When all three of these properties are selected for a transaction, the transaction may block when first acquiring its snapshot, after which it is able to run without the normal overhead of a SERIALIZABLE transaction and without any risk of contributing to or being canceled by a serialization failure. This mode is well suited for long-running reports or backups.
     bool deferrable = false;
@@ -31,13 +31,14 @@ enum TsacConfig TC_REPEATABLEREAD = TsacConfig(IsolationLevel.REPEATABLE_READ, f
 enum TsacConfig TC_SERIAL = TsacConfig(IsolationLevel.SERIALIZABLE, false, false);
 
 
-enum TransactionCommitState
+/// Enum to judge the final state of the transaction.
+enum TransactionResult: byte
 {
-    /// Commit was issued and transaction may or may not have been
-    /// committed, the state is unknown.
+    /// Commit was issued by the client, but the transaction may or may not have been
+    /// committed, it's state is unknown.
     UNKNOWN,
-    /// Commit was not issued or was rejected by backend, or the error during
-    /// transaction initiated rollback.
+    /// Commit has failed, was interpreted as a rollback due to error, or explicit
+    /// rollback was accepted.
     ROLLED_BACK,
     /// Commit succeeded.
     COMMITTED

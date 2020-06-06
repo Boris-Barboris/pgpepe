@@ -1,6 +1,6 @@
 module pgpepe.connector;
 
-import core.time: Duration, seconds, msecs;
+import core.time: Duration, seconds, msecs, minutes;
 import std.conv: to;
 import std.random: uniform;
 
@@ -9,7 +9,7 @@ import vibe.core.core: sleep;
 import vibe.core.sync: LocalTaskSemaphore;
 
 
-public import dpeq.transport: ConnectParameters;
+public import dpeq.transport: StdConnectParameters;
 public import dpeq.connection: SSLPolicy;
 
 import pgpepe.constants;
@@ -25,61 +25,68 @@ import pgpepe.internal.pool;
 
 struct ConnectorSettings
 {
-    /// Backends that are accepting writes. Usually it's one master server.
-    /// Non-readonly transactions will be scheduled on these backends.
-    ConnectParameters[] rwBackends;
-    /// Backends that are accepting only reads. Slave replication nodes.
-    /// Readonly transactions will be scheduled on these backends.
-    ConnectParameters[] roBackends;
+    /// Backends that are accepting read-write transactions in round-robin fashion.
+    /// Usually it's just a VIP of a master server.
+    StdConnectParameters[] backends;
+    /// Optionally, you can specify backends that are accepting all read-only transactions.
+    /// If left emtpy, 'backends' are used.
+    StdConnectParameters[] roBackends;
     /// SSL policy, applied to all connections.
     SSLPolicy sslPolicy;
     /// Each backend will be serviced by this many connections that are only
     /// issuing fast transactions.
-    uint fastPoolSize = 4;
+    int fastPoolSize = 4;
     /// Each backend will be serviced by this many connections that are only
     /// issuing slow transactions.
-    uint slowPoolSize = 8;
+    int slowPoolSize = 8;
     /// TCP connection timeout.
     Duration connectionTimeout = seconds(5);
+    /// Connection is assumed to be stale after this long 'parking' time in the pool
+    /// and will be lazily reopened for next transaction.
+    Duration connectionStaleAfter = minutes(20);
     /// This isolation level is set on the connection start using
     /// SET SESSION CHARACTERISTICS AS TRANSACTION ... query.
     IsolationLevel defaultIsolation = READ_COMMITTED;
-    /// Plain SQL queries wich are ran right after each connection starts and
+    /// Plain SQL queries wich are ran right after each connection is initialized and
     /// it's default transaction type is set. Use this setting to setup locales
-    /// or any other session-specific stuff.
+    /// or any other session-specific parameters.
     string[] conInitQueries;
-    /// Capacity of connection's pipeline queue. Equals to maximum number of queries
-    /// sent but not yet received.
-    uint queueCapacity = 64;
-    /// Maximum number of concurrent transactions in progress.
-    uint tsacQueueLimit = 2048;
+    /// Capacity of per-connection query queue. Pgpepe will pipeline queries
+    /// and block the querying fiber when this number of unprocessed queries is reached.
+    int conQueueCapacity = 32;
+    /// Maximum number of transactions that have entered the connector
+    /// object, both queued and in-progress.
+    int tsacLimit = 1024;
     /// If true (default), arriving transactions on top of tsacQueueLimit will
-    /// bounce with TransactionLimitException exception thrown.
+    /// bounce with TransactionLimitException exception thrown. If false,
+    /// the caller fibers will block.
     bool tsacLimitThrow = true;
-    /// Transaction retry limit for deadlock and serialization failure cases.
-    int safeRetryLimit = 10;
-    /// Transaction retry limit for connectivity failure cases.
-    int sockRetryLimit = 1;
+    /// Default number of retries for deadlock and serialization failure errors.
+    /// 0 - no retries.
+    int safeRetryLimit = 3;
+    /// Default number of retries for transport-level errors. Only correct for idempotent
+    /// transactions. 0 - no retries.
+    int transportRetryLimit = 0;
 }
 
 
+/// System of connection pools and queues that you can issue transactions to.
 final class PgConnector
 {
-    private immutable ConnectorSettings m_settings;
+    private const ConnectorSettings m_settings;
 
-    /// Build connector object, allocate connection pools.
-    this(immutable ConnectorSettings settings)
+    this(const ConnectorSettings settings)
     {
         m_settings = settings;
-        rwPools.length = m_settings.rwBackends.length;
+        rwPools.length = m_settings.backends.length;
         roPools.length = m_settings.roBackends.length;
         // rw
         for (int i = 0; i < rwPools.length; i++)
         {
             logInfo("Creating connection pool for %s read/write backend",
-                m_settings.rwBackends[i].host);
+                m_settings.backends[i].host);
             rwPools[i] = new PgConnectionPool(
-                conSettingsForBackend(m_settings.rwBackends[i], false),
+                conSettingsForBackend(m_settings.backends[i], false),
                 m_settings.fastPoolSize,
                 m_settings.slowPoolSize);
         }
@@ -93,10 +100,10 @@ final class PgConnector
                 m_settings.fastPoolSize,
                 m_settings.slowPoolSize);
         }
-        m_tsacSemaphore = new LocalTaskSemaphore(m_settings.tsacQueueLimit);
+        m_tsacSemaphore = new LocalTaskSemaphore(m_settings.tsacLimit);
     }
 
-    /// Execute simple textual sql query
+    /// Execute simple textual sql query in a transaction.
     QueryResult execute(string sql, TsacConfig tc = TSAC_FDEFAULT)
     {
         lockTransaction();
@@ -185,10 +192,10 @@ final class PgConnector
         m_tsacSemaphore.unlock();
     }
 
-    private immutable(ConnectionSettings) conSettingsForBackend(
-        ref immutable(BackendParams) bp, bool readOnly) const
+    private ConnectionSettings conSettingsForBackend(
+        ref const(StdConnectParameters) bp, bool readOnly) const
     {
-        return immutable ConnectionSettings(
+        return ConnectionSettings(
             bp,
             m_settings.connectionTimeout,
             m_settings.conInitQueries,
@@ -222,10 +229,10 @@ final class PgConnector
         return res;
     }
 
-    private void withRetries(scope void delegate() @safe f)
+    private void withRetries(scope void delegate() @safe dlg)
     {
         int safeRetries = m_settings.safeRetryLimit;
-        int sockRetries = m_settings.sockRetryLimit;
+        int sockRetries = m_settings.transportRetryLimit;
         Exception last;
         while (true)
         {
@@ -237,7 +244,7 @@ final class PgConnector
             }
             try
             {
-                f();
+                dlg();
                 return;
             }
             catch (PsqlSocketException ex)
